@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terabio Update Firmware</title>
+
+  <!-- MD5 LIB -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"></script>
+
+  <script type="module">
+  document.addEventListener("DOMContentLoaded", () => {
+
+      /* =======================
+         UI HELPERS
+      ======================= */
+      const show = (id) => document.getElementById(id).classList.remove("hidden");
+      const hide = (id) => document.getElementById(id).classList.add("hidden");
+
+      const setProgressTitle = (text) =>
+          document.getElementById("progressTitle").innerText = text;
+
+      const setError = (title, reason) => {
+          document.getElementById("errorTitle").innerText = title;
+          document.getElementById("errorReason").innerText = reason;
+      };
+
+      const setProgress = (value) => {
+          document.getElementById("progressBar").style.width = value + "%";
+          document.getElementById("progressValue").innerText = value + "%";
+      };
+
+      /* =======================
+         FILE VALIDATION
+      ======================= */
+      const validateFile = (files) => {
+          if (!files || files.length !== 1) {
+              alert("You can upload only one .bin file.");
+              return false;
+          }
+
+          const ext = files[0].name.split(".").pop().toLowerCase();
+          if (ext !== "bin") {
+              alert("Only .bin files are allowed.");
+              return false;
+          }
+
+          return true;
+      };
+
+      /* =======================
+         MD5 FILE
+      ======================= */
+      const md5File = (file) =>
+          new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = (e) => resolve(md5(e.target.result));
+              reader.onerror = reject;
+              reader.readAsArrayBuffer(file);
+          });
+
+      /* =======================
+         OTA UPLOAD
+      ======================= */
+      const startOTA = async (file) => {
+          hide("uploadColumn");
+          hide("settingsColumn");
+          show("progressColumn");
+
+          try {
+              setProgress(0);
+              setProgressTitle("Preparing firmware...");
+
+              const hash = await md5File(file);
+              const mode = document.getElementById("otaMode").value;
+
+              const startResp = await fetch(
+                  `http://192.168.4.1/ota/start?mode=${mode}&hash=${hash}`
+              );
+
+              if (!startResp.ok) {
+                  throw new Error("OTA start failed");
+              }
+
+              setProgressTitle("Uploading firmware...");
+
+              const formData = new FormData();
+              formData.append("file", file, file.name);
+
+              const xhr = new XMLHttpRequest();
+              xhr.open("POST", "http://192.168.4.1/ota/upload");
+
+              xhr.upload.onprogress = (e) => {
+                  if (e.lengthComputable) {
+                      const percent = Math.round((e.loaded / e.total) * 100);
+                      setProgress(percent);
+                  }
+              };
+
+              xhr.onload = () => {
+                  if (xhr.status === 200) {
+                      setProgress(100);
+                      hide("progressColumn");
+                      show("successColumn");
+                  } else {
+                      throw new Error(xhr.responseText || "Upload failed");
+                  }
+              };
+
+              xhr.onerror = () => {
+                  throw new Error("Connection error during upload");
+              };
+
+              xhr.send(formData);
+
+          } catch (err) {
+              hide("progressColumn");
+              show("errorColumn");
+              setError("Upload failed", err.message);
+          }
+      };
+
+      /* =======================
+         EVENTS
+      ======================= */
+      document.getElementById("uploadButton").addEventListener("click", (e) => {
+          e.preventDefault();
+          document.getElementById("fileInput").click();
+      });
+
+      window.onFileInput = (files) => {
+          if (validateFile(files)) {
+              startOTA(files[0]);
+          }
+      };
+
+      window.resetView = () => window.location.reload();
+  });
+  </script>
+
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f9fafb;
+      margin: 0;
+      padding: 0;
+    }
+
+    h1 {
+      font-size: 24px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 50px;
+    }
+
+    button {
+      cursor: pointer;
+      border-radius: 25px;
+      padding: 12px 20px;
+      border: 1px solid #ccc;
+      background: #fff;
+    }
+
+    button:hover {
+      background: #eee;
+    }
+
+    .progress {
+      width: 280px;
+      background: #ddd;
+      height: 10px;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: #2563eb;
+      transition: width 0.2s;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container" id="uploadColumn">
+    <h1><b>Terabio</b> Update Firmware</h1><br>
+
+    <form>
+      <button id="uploadButton">Select File</button>
+      <input type="file" id="fileInput" hidden accept=".bin"
+             onchange="onFileInput(this.files)">
+    </form>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="settingsColumn" class="container">
+    <label>
+      OTA Mode:
+      <select id="otaMode">
+        <option value="fr">Firmware</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- PROGRESS -->
+  <div id="progressColumn" class="container hidden">
+    <p id="progressTitle"></p>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <div class="progress">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+      <span id="progressValue">0%</span>
+    </div>
+  </div>
+
+  <!-- SUCCESS -->
+  <div id="successColumn" class="container hidden">
+    <h3 style="color:green;">Update Successful</h3>
+    <button onclick="resetView()">Go Back</button>
+  </div>
+
+  <!-- ERROR -->
+  <div id="errorColumn" class="container hidden">
+    <h3 id="errorTitle" style="color:red;">Upload failed</h3>
+    <p id="errorReason">Please try again</p>
+    <button onclick="resetView()">Go Back</button>
+  </div>
+
+</body>
+</html>
