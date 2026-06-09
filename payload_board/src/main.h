@@ -91,5 +91,5 @@ void motorUp();
 void motorDown();
 void motorStop();
 void StatusTask(void *parameter);
-void printAddress(DeviceAddress deviceAddress);
+String printAddress(uint8_t* deviceAddress);
 JsonDocument getInfo();

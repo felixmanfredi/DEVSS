@@ -48,7 +48,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
 
 
     memcpy(NUMac, mac_addr, 6);
-    
+    debugln(dataESPNOW.testo);
     parseCommand(String(dataESPNOW.testo), mac_addr);
     //Serial.printf("Testo: %s\n", datiRicevuti.testo);
     registerDynamicPeer(mac_addr, 1); // Registra dinamicamente il peer se non già presente
@@ -56,18 +56,19 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
 
 
 void parseCommand(const String json,const uint8_t *mac_addr_from) {
-  DeserializationError error = deserializeJson(status, json);
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, json);
   if (error) {
     Serial.print("Errore nella deserializzazione del JSON: ");
     Serial.println(error.c_str());
     return;
   }
 
-  const char* command = status["cmd"];
+  const char* command = doc["cmd"];
   if(strcmp(command, "connect") == 0) {
     memcpy(NUMac, mac_addr_from, 6);
   }else if (strcmp(command, "motor") == 0) {
-    int direction = status["direction"];
+    int direction = doc["direction"];
     if(direction == 1) {
       motorUp();
     } else if (direction == 2) {
@@ -102,8 +103,10 @@ void ESPNOWNUScanner() {
     for (int i = 0; i < retiTrovate; ++i) {
 
       String ssid = WiFi.SSID(i);
+      debugln("SSID "+ssid);
       //verifica se il SSID è un possibile dispositivo Payload ESP-NOW (es. se il nome SSID è vuoto o se il BSSID ha un certo prefisso)
       if(ssid.startsWith("DEVSS_NU")) {
+        
         
         for(int j=0; j<6; j++) {
           NUMac[j] = WiFi.BSSID(i)[j];
@@ -184,6 +187,8 @@ JsonDocument getInfo(){
   docInfo["wifi_ssid"] = ssid;
   docInfo["wifi_channel"] = WiFi.channel();
   docInfo["wifi_password"] = password;
+  docInfo["nu_connected"] = nu_connected;
+  docInfo["nu_mac"]=printAddress(NUMac);
   
   return docInfo;
 }
@@ -334,14 +339,16 @@ void setupCli(){
   
 }
 
-void printAddress(DeviceAddress deviceAddress)
+String printAddress(uint8_t* deviceAddress)
 {
-  for (uint8_t i = 0; i < 8; i++)
-  {
-    // zero pad the address if necessary
-    if (deviceAddress[i] < 0x10) Serial.print("0");
-    Serial.print(deviceAddress[i], HEX);
-  }
+
+  char macStr[18];
+      snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+               deviceAddress[0], deviceAddress[1], deviceAddress[2],
+               deviceAddress[3], deviceAddress[4], deviceAddress[5]);
+
+  return String(macStr);
+  
 }
 
 void setup() {

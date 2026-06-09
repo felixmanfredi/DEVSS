@@ -146,7 +146,7 @@ bool updatePayloadMessage(const uint8_t* mac_addr, String message,String& type) 
   JsonDocument receivedDoc;
   DeserializationError error = deserializeJson(receivedDoc, jsonData);
   if(!error) {
-    type = receivedDoc["type"] | "unknown";
+    type = receivedDoc["T"] | "unknown";
   }
   for (int i = 0; i < 10; i++) {
         if (memcmp(payloads[i].mac, mac_addr, 6) == 0) {
