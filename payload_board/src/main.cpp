@@ -70,9 +70,9 @@ void parseCommand(const String json,const uint8_t *mac_addr_from) {
   }else if (strcmp(command, "motor") == 0) {
     int direction = doc["direction"];
     if(direction == 1) {
-      motorUp();
+      motorUp(false);
     } else if (direction == 2) {
-      motorDown();
+      motorDown(false);
     } else {
       motorStop();
     }
@@ -323,10 +323,10 @@ void setupCli(){
     
     int direction = cmd.getArgument(0).getValue().toInt();
     if(direction == 1) {
-      motorUp();
+      motorUp(false);
       Serial.println("Motore su");
     } else if(direction == 2) {
-      motorDown();
+      motorDown(false);
       Serial.println("Motore giù");
     } else if(direction == 0) {
       motorStop();
@@ -358,8 +358,8 @@ void setup() {
   pinMode(PIN_RELE1, OUTPUT);
   pinMode(PIN_RELE2, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
-  pinMode(BTN1, INPUT);
-  pinMode(BTN2, INPUT);
+  pinMode(BTN1, INPUT_PULLUP);
+  pinMode(BTN2, INPUT_PULLUP);
   pinMode(BTN3, INPUT);
 
   // Inizializza Access Point WiFi
@@ -402,9 +402,9 @@ void loop() {
     
     
     if(btn1State == LOW) {
-      motorUp();
+      motorUp(true);
     } else if (btn2State == LOW) {
-      motorDown();
+      motorDown(true);
     } else if (btn1State == HIGH && btn2State==HIGH && motorState>0) {
       motorStop();
     }
@@ -514,20 +514,26 @@ void StatusTask(void *parameter) {
   }
 }
 
-void motorUp(){
-  motorState=1;
+void motorUp(bool monostate=false){
+  debugln("Motor Up");
+  if(monostate)
+    motorState=1;
   digitalWrite(PIN_RELE1, HIGH);
   digitalWrite(PIN_RELE2, LOW);
   
 }
 
-void motorDown(){
-  motorState=2;
+void motorDown(bool monostate=false){
+    debugln("Motor Down");
+  if(monostate)
+    motorState=2;
   digitalWrite(PIN_RELE1, LOW);
   digitalWrite(PIN_RELE2, HIGH);
 }
 
 void motorStop(){
+    debugln("Motor Stop");
+
   motorState=0;
   digitalWrite(PIN_RELE1, LOW);
   digitalWrite(PIN_RELE2, LOW);

@@ -87,8 +87,8 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
 uint8_t voltageToPercent(float voltage);
 float readVoltage();
 
-void motorUp();
-void motorDown();
+void motorUp(bool monostate);
+void motorDown(bool monostate);
 void motorStop();
 void StatusTask(void *parameter);
 String printAddress(uint8_t* deviceAddress);
