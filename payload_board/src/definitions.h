@@ -45,8 +45,8 @@
 #define PIN_LED    23  // DOUT_LED_ADDR (SK6812/NeoPixel) [cite: 551]
 #define PIN_RELE1      16  // Relè 1 (Controllo motore su/giù) [cite: 559]
 #define PIN_RELE2      17  // Relè 2 (Controllo mot
-#define BTN1            34  // Pulsante 1 (Input digitale) [cite: 558]
-#define BTN2            32  // Pulsante 2 (Input digitale) [cite:
+#define BTN1            19  // Pulsante 1 (Input digitale) [cite: 558]
+#define BTN2            5  // Pulsante 2 (Input digitale) [cite:
 #define BTN3            25  // Pulsante 2 (Input digitale) [cite:
 
 

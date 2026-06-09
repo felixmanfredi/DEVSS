@@ -1,9 +1,9 @@
 #include "main.h"
 
 TaskHandle_t StatusTaskHandle = NULL;
+JsonDocument status;
+String input;
 
-
-JsonDocument doc;
 
 struct VoltagePoint {
   float voltage;
@@ -56,18 +56,18 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
 
 
 void parseCommand(const String json,const uint8_t *mac_addr_from) {
-  DeserializationError error = deserializeJson(doc, json);
+  DeserializationError error = deserializeJson(status, json);
   if (error) {
     Serial.print("Errore nella deserializzazione del JSON: ");
     Serial.println(error.c_str());
     return;
   }
 
-  const char* command = doc["cmd"];
+  const char* command = status["cmd"];
   if(strcmp(command, "connect") == 0) {
     memcpy(NUMac, mac_addr_from, 6);
   }else if (strcmp(command, "motor") == 0) {
-    int direction = doc["direction"];
+    int direction = status["direction"];
     if(direction == 1) {
       motorUp();
     } else if (direction == 2) {
@@ -83,7 +83,6 @@ void parseCommand(const String json,const uint8_t *mac_addr_from) {
     Serial.println(command);
   }
 }
-
 
 /**
  * Effettua una scansione delle reti Wi-Fi nelle vicinanze per identificare
@@ -152,6 +151,7 @@ bool registerDynamicPeer(const uint8_t* mac, int channel) {
         return false;
     }
 }
+
 void sendDataESPNOW(const uint8_t* mac, String data) {
 
   struct_message dataEPSNOW;
@@ -174,6 +174,20 @@ void sendDataESPNOW(const uint8_t* mac, String data) {
 }
 
 /************ HELPER **************/
+
+
+JsonDocument getInfo(){
+  JsonDocument docInfo;
+  docInfo["state"] = "OK";
+  docInfo["version"] = VERSION;
+  docInfo["uptime_seconds"] = millis() / 1000;
+  docInfo["wifi_ssid"] = ssid;
+  docInfo["wifi_channel"] = WiFi.channel();
+  docInfo["wifi_password"] = password;
+  
+  return docInfo;
+}
+
 void beep(int count=1,int pause=1000){
   if( enabledBuzzer){
     for(int i=0;i<count;i++){
@@ -184,17 +198,36 @@ void beep(int count=1,int pause=1000){
     }
   }
 }
-
 void debug(const char* msg) {
-    Serial.print(msg);
+   Serial.print(msg);
+    
+}
+
+void debug(String msg) {
+   Serial.print(msg);
     
 }
 
 void debugln(const char* msg) {
+    
     Serial.println(msg);
     
 }
 
+void debugf(const char* format, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+   
+    Serial.printf(format, args);
+}
+
+void debugln(String msg) {
+   
+    Serial.println(msg.c_str());
+}
 
 /************ SETUP **************/
 
@@ -217,17 +250,6 @@ void initESPNow(){
 }
 
 /**
- * Inizializza il buzzer.
- */
-void initBuzzer(){
-  ledcSetup(channel, freq, resolution);
-  ledcAttachPin(PIN_BUZZER, channel);
-  enabledBuzzer=true;
-  beep(3,100);
- 
-}
-
-/**
  * Inizializza un Access Point WiFi e il webserver con i parametri specificati.
  * Restituisce true se l'AP è stato avviato con successo, false altrimenti.
  */
@@ -240,42 +262,8 @@ bool initWiFiAccessPoint(const char* ssid, const char* password, int channel, bo
     // Imposta la modalità WiFi su Access Point
     WiFi.mode(WIFI_AP);
 
-    //------- IP DI CLASSE DIVERSA DA QUELLA ETHERNET, ALTRIMENTI AVRò PROBLEMI DI DNS, LASCIO LA CONFIG AUTOMATICA, CLASSE 4-----------------------------
-    // Configura IP personalizzato per AP
-    // IPAddress local_IP(192, 168, 1, 111);
-    // IPAddress gateway(192, 168, 1, 1);    // Gateway = IP dell'AP
-    // IPAddress subnet(255, 255, 255, 0);    
-    // WiFi.softAPConfig(local_IP, gateway, subnet);
-    //-------------------------------------------------------------------------------------------------------------
-
     // Configura l'access point
     bool result = WiFi.softAP(ssid, password, channel, hidden, maxConnections);
-    if (result) {
-        // Ottieni e stampa l'indirizzo IP dell'access point
-        IPAddress apIP = WiFi.softAPIP();
-        debug("WLAN - Access Point \"");
-        debug(ssid);
-        debug("\" avviato. IP: ");
-        debugln(apIP.toString().c_str());
-        // Stampa altre informazioni utili
-        debug("WLAN - Canale: ");
-        debugln(String(channel).c_str());
-        debug("WLAN - Password: ");
-        if (password != NULL && strlen(password) > 0) {
-            debugln(password);
-        } else {
-            debugln("Non impostata (rete aperta)");
-        }
-        debug("WLAN - Connessioni massime: ");
-        debugln(String(maxConnections).c_str());
-       
-    } else {
-        debugln("WLAN - Errore: impossibile avviare l'access point WiFi");
-    }
-
-
-    
-
     return result;
 }
 
@@ -306,65 +294,24 @@ void setupCli(){
 
 
   cmdStatus = cli.addCommand("status", [](cmd* c){
-    debug("NU Connected: ");
-    debugln(nu_connected ? "Yes" : "No");
-    debug(" SSID: ");
-    debugln(ssid);
-  
-    debug(" MAC: ");
-    debug(String(NUMac[0], HEX).c_str());
-    debug("-");
-    debug(String(NUMac[1], HEX).c_str());
-    debug("-");
-    debug(String(NUMac[2], HEX).c_str());
-    debug("-");
-    debug(String(NUMac[3], HEX).c_str());
-    debug("-");
-    debug(String(NUMac[4], HEX).c_str());
-    debug("-");
-    debugln(String(NUMac[5], HEX).c_str());
 
+    String jsonResponse;
+    serializeJson(status, jsonResponse);
+    debugln(jsonResponse.c_str());
 
-    debug(" Voltage: ");
-    debugln(String(current_voltage).c_str());
-
-
-    DeviceAddress insideThermometer, outsideThermometer;
-
-    int devCount = 0;
-
-     devCount = sensors.getDeviceCount();
-  Serial.print("#devices: ");
-  Serial.println(devCount);
-
-  // report parasite power requirements
-  Serial.print("Parasite power is: ");
-  if (sensors.readPowerSupply()) Serial.println("ON");  // no address means "scan all devices for parasite mode"
-  else Serial.println("OFF");
-
-  // Search for devices on the bus and assign based on an index.
-  if (!sensors.getAddress(insideThermometer, 0)) Serial.println("Unable to find address for Device 0");
-  if (!sensors.getAddress(outsideThermometer, 1)) Serial.println("Unable to find address for Device 1");
-
-
-      Serial.print("Device 0 Address: ");
-  printAddress(insideThermometer);
-  Serial.println();
-  Serial.print("Power = parasite: ");
-  Serial.println(sensors.readPowerSupply(insideThermometer));
-  Serial.println();
-  Serial.println();
-
-  Serial.print("Device 1 Address: ");
-  printAddress(outsideThermometer);
-  Serial.println();
-  Serial.print("Power = parasite: ");
-  Serial.println(sensors.readPowerSupply(outsideThermometer));
-  Serial.println();
-  Serial.println();
 
   });
   cmdStatus.setDescription("Show current status");
+
+  
+  cmdInfo = cli.addCommand("info", [](cmd* c){
+    
+    JsonDocument docInfo = getInfo();
+    String jsonResponse;
+    serializeJson(docInfo, jsonResponse);
+    debugln(jsonResponse.c_str());
+  });
+  cmdInfo.setDescription("Show device information and status");
 
   cmdMotor = cli.addSingleArgCmd("motor", [](cmd* c){
     Command cmd(c);
@@ -397,18 +344,16 @@ void printAddress(DeviceAddress deviceAddress)
   }
 }
 
-int servoIndex=-1;
 void setup() {
   Serial.begin(115200);
   setupCli(); // Inizializza l'interfaccia a riga di comando
-  initBuzzer(); // Inizializza il buzzer
 
   pinMode(PIN_RELE1, OUTPUT);
   pinMode(PIN_RELE2, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
-  pinMode(BTN1, INPUT_PULLDOWN);
-  pinMode(BTN2, INPUT_PULLDOWN);
-  pinMode(BTN3, INPUT_PULLDOWN);
+  pinMode(BTN1, INPUT);
+  pinMode(BTN2, INPUT);
+  pinMode(BTN3, INPUT);
 
   // Inizializza Access Point WiFi
   if (!initWiFiAccessPoint(ssid, password, 1, false, 4)) {
@@ -424,8 +369,8 @@ void setup() {
 
   sensors.begin(); // Inizializza il sensore di temperatura (se presente)
   sensors.setResolution(12); // Imposta la risoluzione a 12 bit (0.0625°C)
-  sensors.setCheckForConversion(false); // Abilita il controllo dello stato di conversione
-  
+  sensors.setCheckForConversion(true); // Abilita il controllo dello stato di conversione
+  sensors.setWaitForConversion(true);
 
   xTaskCreatePinnedToCore(
     StatusTask,         // Task function
@@ -440,29 +385,38 @@ void setup() {
 
 }
 
-
-
 /************ LOOPS **************/
+
+
 void loop() {
 
     int btn1State = digitalRead(BTN1);
     int btn2State = digitalRead(BTN2);
-    int btn3State = digitalRead(BTN3);
     
-    if(btn1State == HIGH) {
+    
+    if(btn1State == LOW) {
       motorUp();
-    } else if (btn2State == HIGH) {
+    } else if (btn2State == LOW) {
       motorDown();
-    } else if (btn3State == HIGH) {
+    } else if (btn1State == HIGH && btn2State==HIGH && motorState>0) {
       motorStop();
     }
     
-    // From serial
-    String input = Serial.readString();
-    if (input.length() > 0) {
-      Serial.print("# ");
-      Serial.print(input);
-      cli.parse(input);
+     // From serial
+    if(Serial.available()) {
+      char c = Serial.read();
+      debug(String(c)); // Echo del carattere ricevuto
+      if (c == '\n' || c == '\r') {
+        if (input.length() > 0) {
+          debug("# ");
+          debugln(input);
+          
+          cli.parse(input);
+          input = ""; // Pulisce l'input dopo averlo processato
+        }
+      } else if (c != -1) { // Se è stato letto un carattere valido
+        input += c; // Aggiunge il carattere all'input
+      }
     }
     
 
@@ -474,19 +428,19 @@ void loop() {
 
 void updateStatus(){
   float voltage = readVoltage();
-  doc["type"] = PAYLOAD_TYPE;
-  doc["voltage"] = voltage;
-  doc["percent"]= voltageToPercent(voltage);
+  status["T"] = PAYLOAD_TYPE;
+  status["V"] = voltage;
+  status["P"]= voltageToPercent(voltage);
   
   sensors.requestTemperatures(); // Send the command to get temperatures
   // After we got the temperatures, we can print them here.
   // We use the function ByIndex, and as an example get the temperature from the first sensor only.
   float tempC = sensors.getTempCByIndex(0);
   if (tempC != DEVICE_DISCONNECTED_C)
-      doc["temperature"] = tempC;
+      status["Tc"] = tempC-4; //applicato offset di 4°
 
   String jsonResponse;
-  serializeJson(doc, jsonResponse);
+  serializeJson(status, jsonResponse);
   // Controlliamo se il MAC è valido (diverso da zero) prima di inviare
   uint8_t zeroMac[6] = {0, 0, 0, 0, 0, 0};
   if (memcmp(NUMac, zeroMac, 6) != 0) {
@@ -553,19 +507,21 @@ void StatusTask(void *parameter) {
   }
 }
 
-
 void motorUp(){
+  motorState=1;
   digitalWrite(PIN_RELE1, HIGH);
   digitalWrite(PIN_RELE2, LOW);
   
 }
 
 void motorDown(){
+  motorState=2;
   digitalWrite(PIN_RELE1, LOW);
   digitalWrite(PIN_RELE2, HIGH);
 }
 
 void motorStop(){
+  motorState=0;
   digitalWrite(PIN_RELE1, LOW);
   digitalWrite(PIN_RELE2, LOW);
 }

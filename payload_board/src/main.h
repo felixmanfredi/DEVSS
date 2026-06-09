@@ -27,6 +27,8 @@ const char* password = "123456789";
 SimpleCLI cli;
 Command cmdHelp;
 Command cmdStatus;
+Command cmdInfo;
+
 Command cmdReboot;
 Command cmdScan;
 
@@ -50,23 +52,25 @@ esp_now_peer_info_t peerInfo;
 
 
 /****** TEMPERATURE SENSOR ******/
-#define ONE_WIRE_BUS 13
+#define ONE_WIRE_BUS 25
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
 /***** STATUS *****/
 
-
+int motorState=0;
 float current_voltage=0.0f;
 
 
 void beep(int count,int pause);
 void debug(const char* msg);
+void debug(String msg);
 void debugln(const char* msg);
+void debugf(const char* format, ...);
+void debugln(String msg);
 void initESPNow();
 void ESPNOWNUScanner();
 void parseCommand(const String json,const uint8_t *mac_addr_from);
-void initBuzzer();
 bool registerDynamicPeer(const uint8_t* mac, int channel);
 bool initWiFiAccessPoint(const char* ssid, const char* password, int channel, bool hidden, int maxConnections);
 void setup();
@@ -88,3 +92,4 @@ void motorDown();
 void motorStop();
 void StatusTask(void *parameter);
 void printAddress(DeviceAddress deviceAddress);
+JsonDocument getInfo();
