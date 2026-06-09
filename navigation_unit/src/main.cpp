@@ -34,57 +34,40 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
  * Effettua una scansione delle reti Wi-Fi nelle vicinanze per identificare
  * i MAC Address dei potenziali dispositivi ESP-NOW.
  */
-void ESPNOWScanner() {
-  Serial.println("\n--- Inizio Scansione Dispositivi Vicini ---");
+std::vector<esp_peer_found> ESPNOWScanner() {
+  std::vector<esp_peer_found> foundPeers; // Vettore dinamico C++ (gestisce le String in automatico)
   
-  // La scansione Wi-Fi richiede temporaneamente la modalità STA o AP_STA
+  debugln("\n--- Inizio Scansione Dispositivi Vicini ---");
   WiFiMode_t modalitaPrecedente = WiFi.getMode();
   WiFi.mode(WIFI_AP_STA); 
 
-  // WiFi.scanNetworks(async, show_hidden, passive)
-  // Parametri: async = false (attende il risultato), show_hidden = true
   int retiTrovate = WiFi.scanNetworks(false, true, false);
-  
 
-
-  if (retiTrovate == 0) {
-    Serial.println("Nessun dispositivo o rete Wi-Fi trovata nelle vicinanze.");
-  } else {
-    Serial.printf("Trovati %d potenziali dispositivi/reti:\n", retiTrovate);
-    Serial.println("--------------------------------------------------");
-    Serial.printf("%-20s | %-20s | %-17s | %-6s | %-4s\n", "SSID", "TYPE","MAC Address", "RSSI", "Ch");
-    Serial.println("--------------------------------------------------");
-    
-
+  if (retiTrovate > 0) {
     for (int i = 0; i < retiTrovate; ++i) {
-
       String ssid = WiFi.SSID(i);
-      //verifica se il SSID è un possibile dispositivo Payload ESP-NOW (es. se il nome SSID è vuoto o se il BSSID ha un certo prefisso)
       if(ssid.startsWith("DEVSS_")) {
-        //dividi la stringa SSID per ottenere il tipo di dispositivo
         String type = ssid.substring(6);
-        Serial.printf("%-20s | %-20s | %-17s | %-6d | %-4d\n",
-        WiFi.SSID(i).c_str(),
-        type.c_str(),
-        WiFi.BSSIDstr(i).c_str(),
-        WiFi.RSSI(i),
-        WiFi.channel(i));
 
-         addPayload(WiFi.BSSID(i), type,WiFi.channel(i), false); // Aggiungi il dispositivo alla lista dei payloads
+        esp_peer_found peer;
+        peer.channel = WiFi.channel(i);
+        peer.RSSI = WiFi.RSSI(i);
+        peer.ssid = ssid;
+        peer.type = type; 
+        memcpy(peer.mac, WiFi.BSSID(i), 6);
+
+        foundPeers.push_back(peer); // Aggiunge solo i dispositivi validi, ridimensionandosi da solo
+
+        addPayload(WiFi.BSSID(i), type, WiFi.channel(i), false); 
       }
-
-
-      
       delay(10);
     }
-    Serial.println("--------------------------------------------------");
   }
 
-  // Ripristina la modalità originale (nel tuo caso WIFI_AP)
   WiFi.mode(modalitaPrecedente);
-  
-  // Pulisci i dati della scansione dalla memoria
   WiFi.scanDelete();
+
+  return foundPeers; // Sicuro, pulito, contiene solo i record validi
 }
 
 /**
@@ -95,8 +78,8 @@ void sendDataESPNOWBroadcast(String data) {
   // Invia a tutti i peer registrati (MAC address NULL)
   esp_err_t result = esp_now_send(NULL, (uint8_t *) data.c_str(), data.length());
   if (result != ESP_OK) {
-    Serial.print("Error: Errore nell'instradamento del messaggio broadcast, codice: ");
-    Serial.println(result);
+    debug("Error: Errore nell'instradamento del messaggio broadcast, codice: ");
+    //debugln(result);
   }
 }
 
@@ -119,10 +102,10 @@ void sendDataESPNOW(const uint8_t* mac, String data) {
   esp_err_t result = esp_now_send(mac, (uint8_t *) &dataEPSNOW, sizeof(dataEPSNOW));
   // 3. Verifica immediata dell'invio radio
   if (result == ESP_OK) {
-    Serial.println("Sent: Messaggio instradato correttamente dal chip radio.");
+    debugln("Sent: Messaggio instradato correttamente dal chip radio.");
   } else {
-    Serial.print("Error: Errore nell'instradamento del messaggio, codice: ");
-    Serial.println(result);
+    debug("Error: Errore nell'instradamento del messaggio, codice: ");
+   
   }
 }
 
@@ -199,11 +182,11 @@ bool registerDynamicPeer(const uint8_t* mac, int channel) {
 
     esp_err_t addStatus = esp_now_add_peer(&dPeer);
     if (addStatus == ESP_OK) {
-        Serial.printf("ESP-NOW: Nuovo peer [%02X:%02X:%02X:%02X:%02X:%02X] registrato su interfaccia AP.\n", 
+        debugf("ESP-NOW: Nuovo peer [%02X:%02X:%02X:%02X:%02X:%02X] registrato su interfaccia AP.\n", 
                       mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
         return true;
     } else {
-        Serial.printf("ESP-NOW: Errore registrazione peer. Codice: %d\n", addStatus);
+        debugf("ESP-NOW: Errore registrazione peer. Codice: %d\n", addStatus);
         return false;
     }
 }
@@ -216,7 +199,7 @@ unsigned long ota_progress_millis = 0; // Timer per il logging del progresso OTA
  */
 void onOTAStart() {
   // Log when OTA has started
-  Serial.println("OTA update started!");
+  debugln("OTA update started!");
   // <Add your own code here>
 }
 
@@ -227,7 +210,7 @@ void onOTAProgress(size_t current, size_t final) {
   // Log every 1 second
   if (millis() - ota_progress_millis > 1000) {
     ota_progress_millis = millis();
-    Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
+    debugf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
   }
 }
 
@@ -237,9 +220,9 @@ void onOTAProgress(size_t current, size_t final) {
 void onOTAEnd(bool success) {
   // Log when OTA has finished
   if (success) {
-    Serial.println("OTA update finished successfully!");
+    debugln("OTA update finished successfully!");
   } else {
-    Serial.println("There was an error during OTA update!");
+    debugln("There was an error during OTA update!");
   }
   // <Add your own code here>
 }
@@ -273,13 +256,36 @@ void beep(int count=1,int pause=1000){
 }
 
 void debug(const char* msg) {
-    Serial.print(msg);
+   terminal += msg;
+   Serial.print(msg);
+    
+}
+
+void debug(String msg) {
+   terminal += msg;
+   Serial.print(msg);
     
 }
 
 void debugln(const char* msg) {
+    terminal += msg+ '\n';
     Serial.println(msg);
     
+}
+
+void debugf(const char* format, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    terminal += buffer;
+    Serial.printf(format, args);
+}
+
+void debugln(String msg) {
+    terminal += msg + '\n';
+    Serial.println(msg.c_str());
 }
 
 /************ SETUP **************/
@@ -289,7 +295,7 @@ void debugln(const char* msg) {
  */
 void initESPNow(){
   if (esp_now_init() != ESP_OK) {
-      Serial.println("Errore nell'inizializzazione di ESP-NOW");
+      debugln("Errore nell'inizializzazione di ESP-NOW");
       return;
   }
 
@@ -306,7 +312,7 @@ void initESPNow(){
   peerInfo.encrypt = false;
   
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-      Serial.println("Impossibile aggiungere il peer");
+      debugln("Impossibile aggiungere il peer");
       return;
   }
       */
@@ -343,7 +349,7 @@ bool turn_on_wifi(const char* ssid, const char* password, int channel, bool hidd
         IPAddress apIP = WiFi.softAPIP();
        
         initWebserver();
-        Serial.printf("WLAN - Access Point '%s' avviato con successo. IP: %s\n", ssid, apIP.toString().c_str());
+        debugln("WLAN - Access Point avviato con successo.");
        
     } else {
         debugln("WLAN - Errore: impossibile avviare l'access point WiFi");
@@ -362,7 +368,7 @@ void turn_off_wifi() {
     WiFi.softAPdisconnect(true); // Disconnette tutti i client e disabilita l'AP
     WiFi.mode(WIFI_OFF); // Spegne il WiFi completamente
     wifiOn = false;
-    Serial.println("WLAN - Access Point WiFi spento");
+    debugln("WLAN - Access Point WiFi spento");
 }
 
 /**
@@ -373,6 +379,110 @@ void initWebserver() {
       
       String jsonResponse;
       serializeJson(status, jsonResponse);
+
+      request->send(200, "application/json", jsonResponse);
+    });
+
+    server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+      
+      String jsonResponse;
+      serializeJson(status, jsonResponse);
+
+      request->send(200, "application/json", jsonResponse);
+    });
+
+    server.on("/payloads", HTTP_GET, [](AsyncWebServerRequest *request) {
+      
+      JsonArray arr = JsonDocument().to<JsonArray>();
+      for(int i=0; i<10; i++) {
+        if(payloads[i].type != "") {
+          JsonObject payloadObj = arr.createNestedObject();
+          char macStr[18];
+          sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", 
+                  payloads[i].mac[0], payloads[i].mac[1], payloads[i].mac[2], 
+                  payloads[i].mac[3], payloads[i].mac[4], payloads[i].mac[5]);
+          payloadObj["mac"] = String(macStr);
+          payloadObj["type"] = payloads[i].type;
+          payloadObj["channel"] = payloads[i].channel;
+          payloadObj["connected"] = payloads[i].connected;
+          payloadObj["lastMessage"] = payloads[i].lastMessage;
+          payloadObj["counter"] = payloads[i].counter;
+        }
+      }
+
+      String jsonResponse;
+      serializeJson(arr, jsonResponse);
+
+      request->send(200, "application/json", jsonResponse);
+    });
+
+
+    server.on("/cli", HTTP_GET, [](AsyncWebServerRequest *request) {
+      if (request->hasParam("cmd", false)) {
+        String cmd = request->getParam("cmd", false)->value();
+        cli.parse(cmd);
+      }
+
+      // Costruiamo una pagina HTML completa con un Form di invio
+      String htmlContent = "<!DOCTYPE html><html><head><meta charset='utf-8'>";
+      htmlContent += "<title>DEVSS Navigation Unit CLI</title>";
+      htmlContent += "<style>";
+      htmlContent += "  body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; padding: 20px; }";
+      htmlContent += "  .container { max-width: 900px; margin: 0 auto; }";
+      htmlContent += "  h2 { color: #00ff66; font-size: 1.4rem; margin-bottom: 20px; }";
+      htmlContent += "  form { display: flex; gap: 10px; margin-bottom: 20px; }";
+      htmlContent += "  input[type='text'] { flex: 1; background-color: #1e1e1e; border: 1px solid #333; color: #fff; padding: 10px; font-family: monospace; border-radius: 4px; font-size: 1rem; }";
+      htmlContent += "  input[type='text']:focus { border-color: #00ff66; outline: none; }";
+      htmlContent += "  button { background-color: #00ff66; color: #121212; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; border-radius: 4px; font-size: 1rem; transition: background 0.2s; }";
+      htmlContent += "  button:hover { background-color: #00cc55; }";
+      htmlContent += "  pre { background-color: #1e1e1e; border: 1px solid #222; color: #ffffff; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 0.95rem; overflow-x: auto; white-space: pre-wrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }";
+      htmlContent += "</style></head><body>";
+      htmlContent += "<div class='container'>";
+      htmlContent += "  <h2>DEVSS Web Console Terminal</h2>";
+      
+      // Il form fa una chiamata GET verso /cli passandogli il parametro ?cmd=
+      htmlContent += "  <form action='/cli' method='GET'>";
+      htmlContent += "    <input type='text' name='cmd' placeholder='Inserisci un comando (es. status, scan, help)...' autofocus required>";
+      htmlContent += "    <button type='submit'>Invia</button>";
+      htmlContent += "  </form>";
+      
+      // Visualizzazione del log del terminale con i \n preservati
+      htmlContent += "  <pre>" + terminal + "</pre>";
+      htmlContent += "</div>";
+      htmlContent += "</body></html>";
+
+      AsyncWebServerResponse *response = request->beginResponse(200, "text/html", htmlContent);
+      response->addHeader("Content-Disposition", "inline");
+      request->send(response);
+      terminal="";
+    });
+    
+
+    server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request) {
+      
+      std::vector<esp_peer_found> foundPeers = ESPNOWScanner();
+      String jsonResponse;
+      
+      int size=foundPeers.size();
+
+      JsonArray arr = JsonDocument().to<JsonArray>();
+      for(int i=0; i<size; i++) {
+        
+          JsonObject peerObj = arr.createNestedObject();
+          peerObj["ssid"] = foundPeers[i].ssid;
+          peerObj["type"] = foundPeers[i].type;
+          peerObj["channel"] = foundPeers[i].channel;
+          peerObj["RSSI"] = foundPeers[i].RSSI;
+          char macStr[18];
+          sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", 
+                  foundPeers[i].mac[0], foundPeers[i].mac[1], foundPeers[i].mac[2], 
+                  foundPeers[i].mac[3], foundPeers[i].mac[4], foundPeers[i].mac[5]);
+          peerObj["mac"] = String(macStr);
+       
+      }
+
+       serializeJson(arr, jsonResponse); 
+
 
       request->send(200, "application/json", jsonResponse);
     });
@@ -388,7 +498,7 @@ void initWebserver() {
 
     server.on("/reboot",HTTP_GET,[](AsyncWebServerRequest *request){
       
-      request->send(200, "application/json", "{'result':true}");
+      request->send(200, "application/json", "{\"result\":true}");
       ESP.restart();
     });
 
@@ -402,7 +512,7 @@ void initWebserver() {
     ElegantOTA.onProgress(onOTAProgress);
     ElegantOTA.onEnd(onOTAEnd);
 
-    Serial.println("OTA - HTTP server started");
+    debugln("OTA - HTTP server started");
 }
 
 /**
@@ -425,7 +535,7 @@ void initGPIO() {
 void turn_on_raspberry() {
   digitalWrite(PIN_RASPBERRY, HIGH); // Accendi Rpi
   rpiOn = true;
-  Serial.println("Raspberry Pi acceso");
+  debugln("Raspberry Pi acceso");
 }
 
 /**
@@ -434,7 +544,7 @@ void turn_on_raspberry() {
 void turn_off_raspberry() {
   digitalWrite(PIN_RASPBERRY, LOW); // Spegni Rpi
   rpiOn = false;
-  Serial.println("Raspberry Pi spento");
+  debugln("Raspberry Pi spento");
 }
 
 /**
@@ -442,7 +552,7 @@ void turn_off_raspberry() {
  */
 void turn_on_lte(){
   digitalWrite(PIN_MODEM, HIGH); // Accendi il modem
-  Serial.println("Inizializzazione modulo LTE...");
+  debugln("Inizializzazione modulo LTE...");
   //telnetClient.println("Inizializzazione modulo LTE...");
   if (LTE_PWR_PIN > 0) {
     pinMode(LTE_PWR_PIN, OUTPUT);
@@ -464,7 +574,7 @@ void turn_on_lte(){
   lteSerial.begin(115200, SERIAL_8N1, LTE_RX_PIN, LTE_TX_PIN);
   delay(1000);
 
-  Serial.println("modulo LTE acceso e comunicazione seriale inizializzata");
+  debugln("modulo LTE acceso e comunicazione seriale inizializzata");
   //telnetClient.println("modulo LTE pronto");
   sendATCommand("AT", 2000); // Test base  
   lteOn = true;
@@ -480,7 +590,7 @@ void turn_off_lte(){
   }
   lteSerial.end();
   lteOn = false;
-  Serial.println("modulo LTE spento");
+  debugln("modulo LTE spento");
 }
 
 /**
@@ -523,12 +633,12 @@ void setupCli(){
   cli.setOnError(errorCLICallback);
 
   cmdHelp = cli.addCommand("help", [](cmd* c){
-    Serial.print(cli.toString());
+    debug(cli.toString());
   });
   cmdHelp.setDescription("Show this help message");
  
   cmdReboot = cli.addCommand("reboot", [](cmd* c){
-    Serial.println("Riavvio in corso...");
+    debugln("Riavvio in corso...");
     delay(100);
     ESP.restart();
   });
@@ -539,7 +649,7 @@ void setupCli(){
     JsonDocument docInfo = getInfo();
     String jsonResponse;
     serializeJson(docInfo, jsonResponse);
-    Serial.println(jsonResponse);
+    debugln(jsonResponse.c_str());
   });
   cmdInfo.setDescription("Show device information and status");
 
@@ -579,16 +689,16 @@ void setupCli(){
 
   cmdTurnOnWiFi = cli.addCommand("wifi_on", [](cmd* c){
     if(turn_on_wifi(ssid, password, 1, false, 4)) {
-      Serial.println("WiFi Access Point attivo");
+      debugln("WiFi Access Point attivo");
     } else {
-      Serial.println("Errore nell'attivazione del WiFi Access Point");
+      debugln("Errore nell'attivazione del WiFi Access Point");
     }
   });
   cmdTurnOnWiFi.setDescription("Accende il WiFi Access Point");
 
   cmdTurnOffWiFi = cli.addCommand("wifi_off", [](cmd* c){
     turn_off_wifi();
-    Serial.println("WiFi Access Point spento");
+    debugln("WiFi Access Point spento");
   });
   cmdTurnOffWiFi.setDescription("Spegne il WiFi Access Point");
 
@@ -598,11 +708,11 @@ void setupCli(){
 
     String payload = cmd.getArgument(0).getValue(); // Get the first argument as payload
     if(payload.length() == 0) {
-      Serial.println("Usage: broadcast <message>");
+      debugln("Usage: broadcast <message>");
       return;
     }
     sendDataESPNOWBroadcast(payload); // Invia a tutti i peer registrati
-    Serial.println("Broadcast inviato: " + payload);
+    debugln("Broadcast inviato: " + payload);
   });
   cmdSendPayloadBroadcast.setDescription("Invia un messaggio a tutti i peer ESP-NOW registrati. Usage: broadcast <message>");
 
@@ -613,7 +723,7 @@ void setupCli(){
     String payload = cmd.getArgument(1).getValue(); // Get the second argument as payload
 
     if(typeStr.length() == 0 || payload.length() == 0) {
-      Serial.println("Usage: send <type> <message>");
+      debugln("Usage: send <type> <message>");
       return;
     }
 
@@ -626,7 +736,7 @@ void setupCli(){
       }
     }
     if (!mac) {
-      Serial.println("Payload non trovato per il tipo specificato");
+      debugln("Payload non trovato per il tipo specificato");
       return;
     }
 
@@ -648,10 +758,10 @@ void setupCli(){
 void setup() {
   Serial.begin(115200);
 
-  Serial.println("DEVSS Navigation Unit");
-  Serial.println("Version: " VERSION);
-  Serial.println("");
-  Serial.println("Inizializing...");
+  debugln("DEVSS Navigation Unit");
+  debugln("Version: " VERSION);
+  debugln("");
+  debugln("Inizializing...");
 
   serialJetson.begin(115200, SERIAL_8N1);
   setupCli(); // Inizializza l'interfaccia a riga di comando
@@ -666,7 +776,7 @@ void setup() {
 
   // Inizializza Access Point WiFi
   if (!turn_on_wifi(ssid, password, 1, false, 4)) {
-    Serial.println("Errore nell'inizializzazione dell'Access Point WiFi");
+    debugln("Errore nell'inizializzazione dell'Access Point WiFi");
     while (true); // Blocca l'esecuzione
   }
 
@@ -684,7 +794,7 @@ void setup() {
   
   delay(1000);
   
-  Serial.println("Ready to receive commands. Type 'help' for a list of commands.");
+  debugln("Ready to receive commands. Type 'help' for a list of commands.");
   
 }
 
@@ -695,11 +805,11 @@ void loop() {
     // From serial
     if(Serial.available()) {
       char c = Serial.read();
-      Serial.print(c); // Echo del carattere ricevuto
+      debug(String(c)); // Echo del carattere ricevuto
       if (c == '\n' || c == '\r') {
         if (input.length() > 0) {
-          Serial.print("# ");
-          Serial.println(input);
+          debug("# ");
+          debugln(input);
           
           cli.parse(input);
           input = ""; // Pulisce l'input dopo averlo processato
@@ -726,13 +836,13 @@ void loop() {
 void errorCLICallback(cmd_error* e) {
     CommandError cmdError(e); // Create wrapper object
 
-    Serial.print("ERROR: ");
-    Serial.println(cmdError.toString());
+    debug("ERROR: ");
+    debugln(cmdError.toString().c_str());
 
     if (cmdError.hasCommand()) {
-        Serial.print("Did you mean \"");
-        Serial.print(cmdError.getCommand().toString());
-        Serial.println("\"?");
+        debug("Did you mean \"");
+        debug(cmdError.getCommand().toString().c_str());
+        debugln("\"?");
     }
 }
 
@@ -765,7 +875,7 @@ void updateStatus(){
   status["V2"] = current_voltage_batt2;
   status["P2"]= percent_batt2;
   status["G"] = readGPSBackup();
-  
+
   JsonArray payloadsArray = status["PL"].to<JsonArray>();
   serializedPayloads(payloadsArray);
  

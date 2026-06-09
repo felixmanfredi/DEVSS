@@ -7,8 +7,11 @@
 #include <ArduinoJson.h>
 #include <Adafruit_NeoPixel.h>
 #include <esp_now.h>
+#include <vector>
 #define VERSION "1.0.0"
 
+
+String terminal="";
 /**** BUZZER *****/
 int freq = 2000;
 int channel = 1;
@@ -52,6 +55,18 @@ bool wifiOn = false;
 
 
 /***** ESP-NOW ******/
+
+typedef struct esp_peer_found {
+    uint8_t mac[6];
+    String ssid;
+    int32_t channel;
+    int32_t RSSI;
+    String type;
+} esp_peer_found;
+
+
+
+
 typedef struct payload {
     uint8_t mac[6];
     String type;
@@ -93,13 +108,16 @@ WiFiServer telnetServer(23);
 
 void beep(int count,int pause);
 void debug(const char* msg);
+void debug(String msg);
 void debugln(const char* msg);
+void debugf(const char* format, ...);
+void debugln(String msg);
 void initESPNow();
 bool addPayload(const uint8_t* mac, String type, int ch,bool connected);
 bool updatePayloadMessage(const uint8_t* mac_addr, String message,String& type);
 bool registerDynamicPeer(const uint8_t* mac, int channel);
 void serializedPayloads(JsonArray& arr);
-void ESPNOWScanner();
+std::vector<esp_peer_found> ESPNOWScanner();
 void sendDataESPNOW(const uint8_t* mac, String data);
 void sendDataESPNOWBroadcast(String data);
 void initBuzzer();
