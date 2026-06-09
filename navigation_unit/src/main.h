@@ -5,10 +5,10 @@
 #include <ElegantOTA.h>
 #include "SimpleCLI.h"
 #include <ArduinoJson.h>
-#include <Adafruit_NeoPixel.h>
+//#include <Adafruit_NeoPixel.h>
 #include <esp_now.h>
 #include <vector>
-#define VERSION "1.0.0"
+#define VERSION "1.0.1"
 
 
 String terminal="";
@@ -18,7 +18,6 @@ int channel = 1;
 int resolution = 8;
 bool enabledBuzzer=true;
 
-Adafruit_NeoPixel pixels(2, PIN_LED_ADDR, NEO_GRB + NEO_KHZ800);
 
 
 /******* BUZZER ******/
