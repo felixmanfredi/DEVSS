@@ -3,6 +3,11 @@
 
 #include <Arduino.h>
 
+
+#define RXD1 18
+#define TXD1 17
+
+
 #define LTE_TX_PIN 6  // Pin TX dell'ESP32 collegato a RX del modulo LTE
 #define LTE_RX_PIN 8  // Pin RX dell'ESP32 collegato a TX del modulo LTE
 #define LTE_PWR_PIN 11 // Pin per accensione modulo LTE (opzionale)
@@ -35,6 +40,7 @@
 // --- BATTERY VOLTAGE DIVIDERS (Updated Table) ---
 // Multipliers to convert ADC voltage to Real voltage
 // Formula: Real_V = ADC_V * DIV_FACTOR
+
 #define DIV_FACTOR_V_USB  2.0000f    // 100K / 100K (PIN_ADC_V_USB)
 #define DIV_FACTOR_CH2    1.5000f    // 1M / 2M (Probabile Cella 1)
 #define DIV_FACTOR_CH1    3.0246f    // 2470k / 1220k
@@ -51,14 +57,30 @@
 
 
 // --- MISC INPUTS/OUTPUTS ---
-#define PIN_BUZZER      40  // Buzzer attivo [cite: 560]
+#define PIN_BUZZER      15  // Buzzer attivo [cite: 560]
 #define PIN_LED_ADDR    42  // DOUT_LED_ADDR (SK6812/NeoPixel) [cite: 551]
 #define PIN_RASPBERRY   48  // Indica se il Raspberry è acceso) [cite: 565]
 #define PIN_MODEM   11  // Indica se il Raspberry è acceso) [cite: 565]
 
+#define BUZZER_CHANNEL 0
+#define BUZZER_RESOLUTION 8
+#define BUZZER_DUTY_CYCLE 125  // 50% di 255 (8-bit)
+
+#define V_MIN_6S  19.8 // ~3.3V per cella (Scarica)
+#define V_MAX_6S  24.6 // 4.1V per cella (Carica)
 
 // --- USB NATIVE PINS ---
 // #define PIN_USB_DN      19  // USB D- [cite: 548]
 // #define PIN_USB_DP      20  // USB D+ [cite: 552]
+
+// Definizione delle note musicali (frequenze in Hz)
+#define NOTE_C4  262
+#define NOTE_D4  294
+#define NOTE_E4  330
+#define NOTE_F4  349
+#define NOTE_G4  392
+#define NOTE_A4  440
+#define NOTE_B4  494
+#define NOTE_C5  523
 
 #endif

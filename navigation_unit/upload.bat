@@ -2,7 +2,7 @@
 SETLOCAL ENABLEDELAYEDEXPANSION
 
 REM ---- Configura il firmware e la modalità OTA ----
-SET "FILE=.pio/build/ESP32_S3_MINI_N4R2/firmware.bin"
+SET "FILE=.pio/build/NAVIGATIONUNIT/firmware.bin"
 
 REM ---- Carica il firmware usando ElegantOTA ----
 ECHO Inizio upload del firmware %FILE% su %ESP_IP%...

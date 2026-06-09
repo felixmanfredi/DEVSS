@@ -1,28 +1,211 @@
 #include <main.h>
 HardwareSerial lteSerial(1); // Usa UART1
-
+HardwareSerial serialJetson(0); // Usa UART0
 AsyncWebServer server(80);
-JsonDocument doc;
+JsonDocument status;
+TaskHandle_t StatusTaskHandle = NULL;
+String input;
+
 /************** ESP-NOW *****************/
-// Callback quando i dati vengono inviati
+// Callback quando i dati vengono inviati dati in ESP-NOW
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-    Serial.print("\r\nStato ultimo invio:\t");
-    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Consegna Riuscita" : "Consegna Fallita");
+
 }
 
-// Callback quando si ricevono dati
+// Callback quando si ricevono dati in ESP-NOW
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
-    memcpy(&datiRicevuti, incomingData, sizeof(datiRicevuti));
-    
-    Serial.print("\r\n--- Dati Ricevuti da MAC: ");
-    for (int i = 0; i < 6; i++) {
-        Serial.printf("%02X:", mac_addr[i]);
+   
+    struct_message dataESPNOW;
+    memcpy(&dataESPNOW, incomingData, sizeof(dataESPNOW));
+
+    //cerca il payload corrispondente al MAC address del mittente e aggiorna il campo lastMessage con i dati ricevuti
+    String type;
+    if(updatePayloadMessage(mac_addr, String(dataESPNOW.testo), type)) {
+    } else {
+        //converti il dato ricevuto in json
+        if(addPayload(mac_addr,type, 0, false)) {
+            updatePayloadMessage(mac_addr, String(dataESPNOW.testo), type);
+        }
     }
-    Serial.println();
     
-    Serial.printf("Testo: %s\n", datiRicevuti.testo);
-    Serial.printf("Contatore: %d\n", datiRicevuti.contatore);
-    Serial.printf("Lettura: %.2f\n", datiRicevuti.lettura);
+}
+
+/**
+ * Effettua una scansione delle reti Wi-Fi nelle vicinanze per identificare
+ * i MAC Address dei potenziali dispositivi ESP-NOW.
+ */
+void ESPNOWScanner() {
+  Serial.println("\n--- Inizio Scansione Dispositivi Vicini ---");
+  
+  // La scansione Wi-Fi richiede temporaneamente la modalità STA o AP_STA
+  WiFiMode_t modalitaPrecedente = WiFi.getMode();
+  WiFi.mode(WIFI_AP_STA); 
+
+  // WiFi.scanNetworks(async, show_hidden, passive)
+  // Parametri: async = false (attende il risultato), show_hidden = true
+  int retiTrovate = WiFi.scanNetworks(false, true, false);
+  
+
+
+  if (retiTrovate == 0) {
+    Serial.println("Nessun dispositivo o rete Wi-Fi trovata nelle vicinanze.");
+  } else {
+    Serial.printf("Trovati %d potenziali dispositivi/reti:\n", retiTrovate);
+    Serial.println("--------------------------------------------------");
+    Serial.printf("%-20s | %-20s | %-17s | %-6s | %-4s\n", "SSID", "TYPE","MAC Address", "RSSI", "Ch");
+    Serial.println("--------------------------------------------------");
+    
+
+    for (int i = 0; i < retiTrovate; ++i) {
+
+      String ssid = WiFi.SSID(i);
+      //verifica se il SSID è un possibile dispositivo Payload ESP-NOW (es. se il nome SSID è vuoto o se il BSSID ha un certo prefisso)
+      if(ssid.startsWith("DEVSS_")) {
+        //dividi la stringa SSID per ottenere il tipo di dispositivo
+        String type = ssid.substring(6);
+        Serial.printf("%-20s | %-20s | %-17s | %-6d | %-4d\n",
+        WiFi.SSID(i).c_str(),
+        type.c_str(),
+        WiFi.BSSIDstr(i).c_str(),
+        WiFi.RSSI(i),
+        WiFi.channel(i));
+
+         addPayload(WiFi.BSSID(i), type,WiFi.channel(i), false); // Aggiungi il dispositivo alla lista dei payloads
+      }
+
+
+      
+      delay(10);
+    }
+    Serial.println("--------------------------------------------------");
+  }
+
+  // Ripristina la modalità originale (nel tuo caso WIFI_AP)
+  WiFi.mode(modalitaPrecedente);
+  
+  // Pulisci i dati della scansione dalla memoria
+  WiFi.scanDelete();
+}
+
+/**
+  * Invia un messaggio broadcast a tutti i peer ESP-NOW registrati.
+  * Il messaggio viene inviato come stringa JSON.
+  */
+void sendDataESPNOWBroadcast(String data) {
+  // Invia a tutti i peer registrati (MAC address NULL)
+  esp_err_t result = esp_now_send(NULL, (uint8_t *) data.c_str(), data.length());
+  if (result != ESP_OK) {
+    Serial.print("Error: Errore nell'instradamento del messaggio broadcast, codice: ");
+    Serial.println(result);
+  }
+}
+
+/**
+ * Invia un messaggio a un peer ESP-NOW specifico, identificato dal suo MAC address.
+ */
+void sendDataESPNOW(const uint8_t* mac, String data) {
+
+  struct_message dataEPSNOW;
+
+
+  // 1. Prepariamo i dati da inviare
+  strcpy(dataEPSNOW.testo, data.c_str());
+  dataEPSNOW.contatore = 0;
+  dataEPSNOW.lettura = 0.0f;
+
+  // 2. Inviamo il messaggio
+  // Parametri: MAC destinatario (o NULL per inviarlo a tutti i peer registrati), 
+  //            puntatore ai dati convertito in uint8_t*, dimensione dei dati.
+  esp_err_t result = esp_now_send(mac, (uint8_t *) &dataEPSNOW, sizeof(dataEPSNOW));
+  // 3. Verifica immediata dell'invio radio
+  if (result == ESP_OK) {
+    Serial.println("Sent: Messaggio instradato correttamente dal chip radio.");
+  } else {
+    Serial.print("Error: Errore nell'instradamento del messaggio, codice: ");
+    Serial.println(result);
+  }
+}
+
+
+/**
+ * Aggiunge un nuovo payload alla lista dei payloads, se c'è spazio disponibile.
+ * Ogni payload contiene il MAC address, il tipo di dispositivo e lo stato di connessione
+ */
+bool addPayload(const uint8_t* mac, String type, int ch,bool connected) {
+  JsonDocument payloadDoc;
+  payloadDoc["cmd"] = "connect";
+  String jsonResponse;
+  serializeJson(payloadDoc, jsonResponse);  
+  
+  for (int i = 0; i < 10; i++) {
+      
+        if (payloads[i].type == "") { // Trova la prima posizione libera
+            memcpy(payloads[i].mac, mac, 6);
+            payloads[i].type = type;
+            payloads[i].channel = ch;
+            payloads[i].connected = connected;
+            if (registerDynamicPeer(mac, ch)) {
+                sendDataESPNOW(mac, jsonResponse);
+            }
+
+            return true;
+            
+        }
+    }
+    return false;
+}
+
+/**
+ * Aggiorna il campo lastMessage del payload corrispondente al MAC address specificato, se esiste.
+ */
+bool updatePayloadMessage(const uint8_t* mac_addr, String message,String& type) {
+  String jsonData = message;
+  JsonDocument receivedDoc;
+  DeserializationError error = deserializeJson(receivedDoc, jsonData);
+  if(!error) {
+    type = receivedDoc["type"] | "unknown";
+  }
+  for (int i = 0; i < 10; i++) {
+        if (memcmp(payloads[i].mac, mac_addr, 6) == 0) {
+            
+            payloads[i].lastMessage = jsonData;
+            payloads[i].counter++;
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Registra dinamicamente un peer ESP-NOW con il MAC address e il canale specificati. Restituisce true se la registrazione ha successo, false altrimenti.
+ */
+bool registerDynamicPeer(const uint8_t* mac, int channel) {
+    // Verifica se il peer è già registrato
+    if (esp_now_is_peer_exist(mac)) {
+        return true; 
+    }
+
+    esp_now_peer_info_t dPeer;
+    memset(&dPeer, 0, sizeof(esp_now_peer_info_t)); // Pulisce la memoria
+    
+    memcpy(dPeer.peer_addr, mac, 6);
+    dPeer.channel = channel; 
+    dPeer.encrypt = false;
+    
+    // --- SOLUZIONE DEL PROBLEMA ---
+    // Specifichiamo l'interfaccia radio corretto: usiamo WIFI_IF_AP 
+    // perché l'ESP sta funzionando come Access Point (WIFI_AP)
+    dPeer.ifidx = WIFI_IF_AP; 
+
+    esp_err_t addStatus = esp_now_add_peer(&dPeer);
+    if (addStatus == ESP_OK) {
+        Serial.printf("ESP-NOW: Nuovo peer [%02X:%02X:%02X:%02X:%02X:%02X] registrato su interfaccia AP.\n", 
+                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        return true;
+    } else {
+        Serial.printf("ESP-NOW: Errore registrazione peer. Codice: %d\n", addStatus);
+        return false;
+    }
 }
 
 /************* OTA *****************/
@@ -62,6 +245,22 @@ void onOTAEnd(bool success) {
 }
 
 /************ HELPER **************/
+
+JsonDocument getInfo(){
+  JsonDocument docInfo;
+  docInfo["state"] = "OK";
+  docInfo["version"] = VERSION;
+  docInfo["uptime_seconds"] = millis() / 1000;
+  docInfo["lte"] = lteOn ? "ON" : "OFF";
+  docInfo["wifi"] = wifiOn ? "ON" : "OFF";
+  docInfo["wifi_ssid"] = ssid;
+  docInfo["wifi_channel"] = WiFi.channel();
+  docInfo["wifi_password"] = password;
+  docInfo["rpi"] = rpiOn ? "ON" : "OFF";
+
+  return docInfo;
+}
+
 void beep(int count=1,int pause=1000){
   if( enabledBuzzer){
     for(int i=0;i<count;i++){
@@ -83,7 +282,6 @@ void debugln(const char* msg) {
     
 }
 
-
 /************ SETUP **************/
 
 /**
@@ -101,6 +299,7 @@ void initESPNow(){
   // Registra la callback di ricezione
   esp_now_register_recv_cb(OnDataRecv);
 
+  /*
   // Registra il peer (l'altro ESP32)
   memcpy(peerInfo.peer_addr, receiverMac, 6);
   peerInfo.channel = 0;  // Usa il canale corrente del Wi-Fi
@@ -110,6 +309,7 @@ void initESPNow(){
       Serial.println("Impossibile aggiungere il peer");
       return;
   }
+      */
 }
 
 /**
@@ -127,7 +327,7 @@ void initBuzzer(){
  * Inizializza un Access Point WiFi e il webserver con i parametri specificati.
  * Restituisce true se l'AP è stato avviato con successo, false altrimenti.
  */
-bool initWiFiAccessPoint(const char* ssid, const char* password, int channel, bool hidden, int maxConnections) {
+bool turn_on_wifi(const char* ssid, const char* password, int channel, bool hidden, int maxConnections) {
     // Verifica che la password sia valida (minimo 8 caratteri per WPA2)
     if (password != NULL && strlen(password) < 8) {
         //debugln("Errore: la password deve essere di almeno 8 caratteri");
@@ -136,62 +336,64 @@ bool initWiFiAccessPoint(const char* ssid, const char* password, int channel, bo
     // Imposta la modalità WiFi su Access Point
     WiFi.mode(WIFI_AP);
 
-    //------- IP DI CLASSE DIVERSA DA QUELLA ETHERNET, ALTRIMENTI AVRò PROBLEMI DI DNS, LASCIO LA CONFIG AUTOMATICA, CLASSE 4-----------------------------
-    // Configura IP personalizzato per AP
-    // IPAddress local_IP(192, 168, 1, 111);
-    // IPAddress gateway(192, 168, 1, 1);    // Gateway = IP dell'AP
-    // IPAddress subnet(255, 255, 255, 0);    
-    // WiFi.softAPConfig(local_IP, gateway, subnet);
-    //-------------------------------------------------------------------------------------------------------------
-
     // Configura l'access point
     bool result = WiFi.softAP(ssid, password, channel, hidden, maxConnections);
     if (result) {
         // Ottieni e stampa l'indirizzo IP dell'access point
         IPAddress apIP = WiFi.softAPIP();
-        debug("WLAN - Access Point \"");
-        debug(ssid);
-        debug("\" avviato. IP: ");
-        debugln(apIP.toString().c_str());
-        // Stampa altre informazioni utili
-        debug("WLAN - Canale: ");
-        debugln(String(channel).c_str());
-        debug("WLAN - Password: ");
-        if (password != NULL && strlen(password) > 0) {
-            debugln(password);
-        } else {
-            debugln("Non impostata (rete aperta)");
-        }
-        debug("WLAN - Connessioni massime: ");
-        debugln(String(maxConnections).c_str());
+       
+        initWebserver();
+        Serial.printf("WLAN - Access Point '%s' avviato con successo. IP: %s\n", ssid, apIP.toString().c_str());
        
     } else {
         debugln("WLAN - Errore: impossibile avviare l'access point WiFi");
     }
 
 
-    
+    wifiOn = result;
 
     return result;
 }
 
 /**
- * Inizializza ElegantOTA con il webserver specificato.
+ * Spegne il WiFi, disconnettendo tutti i client e disabilitando l'AP. Imposta lo stato wifiOn su false.
  */
-void initElegantOTA() {
+void turn_off_wifi() {
+    WiFi.softAPdisconnect(true); // Disconnette tutti i client e disabilita l'AP
+    WiFi.mode(WIFI_OFF); // Spegne il WiFi completamente
+    wifiOn = false;
+    Serial.println("WLAN - Access Point WiFi spento");
+}
+
+/**
+ * Inizializza il webserver.
+ */
+void initWebserver() {
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
       
-      
       String jsonResponse;
-      serializeJson(doc, jsonResponse);
+      serializeJson(status, jsonResponse);
 
       request->send(200, "application/json", jsonResponse);
     });
 
-    
+    server.on("/info", HTTP_GET, [](AsyncWebServerRequest *request) {
+      
+      JsonDocument docInfo = getInfo();
+      String jsonResponse;
+      serializeJson(docInfo, jsonResponse);
+
+      request->send(200, "application/json", jsonResponse);
+    });
+
+    server.on("/reboot",HTTP_GET,[](AsyncWebServerRequest *request){
+      
+      request->send(200, "application/json", "{'result':true}");
+      ESP.restart();
+    });
 
     server.begin();
-    Serial.println("OTA - HTTP server started");
+    
   
 
     ElegantOTA.begin(&server);    // Start ElegantOTA
@@ -199,28 +401,47 @@ void initElegantOTA() {
     ElegantOTA.onStart(onOTAStart);
     ElegantOTA.onProgress(onOTAProgress);
     ElegantOTA.onEnd(onOTAEnd);
+
+    Serial.println("OTA - HTTP server started");
 }
 
-
+/**
+ * Inizializza la GPIO, configurando i pin del Raspberry e del modem come uscite, e il pin ADC come ingresso. Imposta i pin dei LED su HIGH per tenerli spenti all'inizio.
+ */
 void initGPIO() {
+  ledcSetup(BUZZER_CHANNEL, 6000, BUZZER_RESOLUTION);
+  ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
+
   // Configura il pin del Raspberry come uscita
   pinMode(PIN_RASPBERRY, OUTPUT);
   pinMode(PIN_MODEM, OUTPUT);
-
-
-
-  digitalWrite(PIN_RASPBERRY, HIGH); // Assicurati che il LED sia spento all'inizio
-  digitalWrite(PIN_MODEM, HIGH); // Assicurati che il LED sia spento all'inizio
-
-
-
   // Configura il pin ADC come ingresso (opzionale, poiché analogRead lo fa automaticamente)
   pinMode(PIN_ADC_CH0, INPUT);
 }
 
+/**
+ * Accende il Raspberry Pi, impostando il pin di alimentazione su HIGH. Spegne il Raspberry Pi, impostando il pin di alimentazione su LOW.
+ */
+void turn_on_raspberry() {
+  digitalWrite(PIN_RASPBERRY, HIGH); // Accendi Rpi
+  rpiOn = true;
+  Serial.println("Raspberry Pi acceso");
+}
 
+/**
+ * Spegne il Raspberry Pi, impostando il pin di alimentazione su LOW.
+ */
+void turn_off_raspberry() {
+  digitalWrite(PIN_RASPBERRY, LOW); // Spegni Rpi
+  rpiOn = false;
+  Serial.println("Raspberry Pi spento");
+}
+
+/**
+ * Accende il modulo LTE.
+ */
 void turn_on_lte(){
-
+  digitalWrite(PIN_MODEM, HIGH); // Accendi il modem
   Serial.println("Inizializzazione modulo LTE...");
   //telnetClient.println("Inizializzazione modulo LTE...");
   if (LTE_PWR_PIN > 0) {
@@ -243,12 +464,28 @@ void turn_on_lte(){
   lteSerial.begin(115200, SERIAL_8N1, LTE_RX_PIN, LTE_TX_PIN);
   delay(1000);
 
-  Serial.println("modulo LTE pronto");
+  Serial.println("modulo LTE acceso e comunicazione seriale inizializzata");
   //telnetClient.println("modulo LTE pronto");
   sendATCommand("AT", 2000); // Test base  
+  lteOn = true;
 
 }
+/**
+ * Spegne il modulo LTE, disabilitando la comunicazione seriale e impostando il pin di alimentazione su LOW. Imposta lo stato lteOn su false.
+ */
+void turn_off_lte(){
+  if (LTE_PWR_PIN > 0) {
+    digitalWrite(LTE_PWR_PIN, LOW); // Spegni modulo LTE
+    delay(3000);
+  }
+  lteSerial.end();
+  lteOn = false;
+  Serial.println("modulo LTE spento");
+}
 
+/**
+ * Invia un comando AT al modulo LTE e attende una risposta per un certo timeout. Restituisce la risposta come stringa. Se non arriva nessuna risposta entro il timeout, restituisce un messaggio di timeout.
+ */
 String sendATCommand(String command, int timeout) {
   // Pulisci buffer
   while (lteSerial.available()) {
@@ -283,92 +520,286 @@ String sendATCommand(String command, int timeout) {
 void setupCli(){
 
   cli.setCaseSensitive(false);
+  cli.setOnError(errorCLICallback);
 
   cmdHelp = cli.addCommand("help", [](cmd* c){
     Serial.print(cli.toString());
   });
   cmdHelp.setDescription("Show this help message");
  
+  cmdReboot = cli.addCommand("reboot", [](cmd* c){
+    Serial.println("Riavvio in corso...");
+    delay(100);
+    ESP.restart();
+  });
+  cmdReboot.setDescription("Reboot the device");
 
-
-
-
+  cmdInfo = cli.addCommand("info", [](cmd* c){
+    
+    JsonDocument docInfo = getInfo();
+    String jsonResponse;
+    serializeJson(docInfo, jsonResponse);
+    Serial.println(jsonResponse);
+  });
+  cmdInfo.setDescription("Show device information and status");
 
   cmdStatus = cli.addCommand("status", [](cmd* c){
-    debugln("Status:");
-    
-    
-    
-    
-    debug(" Voltage: ");
-    debugln(String(current_voltage).c_str());
+    String jsonResponse;
+    serializeJson(status, jsonResponse);
+    debugln(jsonResponse.c_str());
+   
 
   });
   cmdStatus.setDescription("Show current status");
 
- 
+  cmdScan = cli.addCommand("scan", [](cmd* c){
+    ESPNOWScanner();
+  });
+  cmdScan.setDescription("Scansiona i payload nelle vicinanze");
   
+  cmdTurnOnLTE = cli.addCommand("lte_on", [](cmd* c){
+    turn_on_lte();
+  });
+  cmdTurnOnLTE.setDescription("Accende il modulo LTE");
+  
+  cmdTurnOffLTE = cli.addCommand("lte_off", [](cmd* c){
+    turn_off_lte();
+  });
+  cmdTurnOffLTE.setDescription("Spegne il modulo LTE");
+
+  cmdTurnOnRPi = cli.addCommand("rpi_on", [](cmd* c){
+    turn_on_raspberry();
+  });
+  cmdTurnOnRPi.setDescription("Accende il Raspberry Pi");
+
+  cmdTurnOffRPi = cli.addCommand("rpi_off", [](cmd* c){
+    turn_off_raspberry();
+  });
+  cmdTurnOffRPi.setDescription("Spegne il Raspberry Pi");
+
+  cmdTurnOnWiFi = cli.addCommand("wifi_on", [](cmd* c){
+    if(turn_on_wifi(ssid, password, 1, false, 4)) {
+      Serial.println("WiFi Access Point attivo");
+    } else {
+      Serial.println("Errore nell'attivazione del WiFi Access Point");
+    }
+  });
+  cmdTurnOnWiFi.setDescription("Accende il WiFi Access Point");
+
+  cmdTurnOffWiFi = cli.addCommand("wifi_off", [](cmd* c){
+    turn_off_wifi();
+    Serial.println("WiFi Access Point spento");
+  });
+  cmdTurnOffWiFi.setDescription("Spegne il WiFi Access Point");
+
+
+  cmdSendPayloadBroadcast = cli.addSingleArgCmd("broadcast", [](cmd* c){
+    Command cmd(c); // Create wrapper object
+
+    String payload = cmd.getArgument(0).getValue(); // Get the first argument as payload
+    if(payload.length() == 0) {
+      Serial.println("Usage: broadcast <message>");
+      return;
+    }
+    sendDataESPNOWBroadcast(payload); // Invia a tutti i peer registrati
+    Serial.println("Broadcast inviato: " + payload);
+  });
+  cmdSendPayloadBroadcast.setDescription("Invia un messaggio a tutti i peer ESP-NOW registrati. Usage: broadcast <message>");
+
+  cmdSendPayloadToPeer = cli.addCommand("send", [](cmd* c){
+    Command cmd(c); // Create wrapper object
+
+    String typeStr = cmd.getArgument(0).getValue(); // Get the first argument as type
+    String payload = cmd.getArgument(1).getValue(); // Get the second argument as payload
+
+    if(typeStr.length() == 0 || payload.length() == 0) {
+      Serial.println("Usage: send <type> <message>");
+      return;
+    }
+
+    // Trova il primo payload che corrisponde al tipo specificato
+    uint8_t* mac = nullptr;
+    for (int i = 0; i < 10; i++) {
+      if (payloads[i].type == typeStr) {
+        mac = payloads[i].mac;
+        break;
+      }
+    }
+    if (!mac) {
+      Serial.println("Payload non trovato per il tipo specificato");
+      return;
+    }
+
+     // Formatta il MAC address in una stringa leggibile (es. "00:1A:2B:3C:4D:5E")
+      char macStr[18];
+      snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+               mac[0], mac[1], mac[2],
+               mac[3], mac[4], mac[5]);
+
+    sendDataESPNOW(mac, payload); // Invia al peer specifico
+   
+  });
+  cmdSendPayloadToPeer.setDescription("Invia un messaggio a un peer ESP-NOW specifico. Usage: send <type> <message>");
+  cmdSendPayloadToPeer.addArgument("type");
+  cmdSendPayloadToPeer.addArgument("message");
+
 }
 
-
-
-int servoIndex=-1;
 void setup() {
   Serial.begin(115200);
+
+  Serial.println("DEVSS Navigation Unit");
+  Serial.println("Version: " VERSION);
+  Serial.println("");
+  Serial.println("Inizializing...");
+
+  serialJetson.begin(115200, SERIAL_8N1);
   setupCli(); // Inizializza l'interfaccia a riga di comando
+  initGPIO(); // Inizializza la GPIO
   initBuzzer(); // Inizializza il buzzer
   
+  turn_on_raspberry(); // Accende il Raspberry Pi
+  turn_on_lte(); // Accende il modulo LTE
+
+
   pixels.begin();
 
   // Inizializza Access Point WiFi
-  if (!initWiFiAccessPoint(ssid, password, 1, false, 4)) {
+  if (!turn_on_wifi(ssid, password, 1, false, 4)) {
     Serial.println("Errore nell'inizializzazione dell'Access Point WiFi");
     while (true); // Blocca l'esecuzione
   }
 
   initESPNow(); // Inizializza ESP-NOW
-  initElegantOTA(); // Inizializza ElegantOTA
-  initGPIO(); // Inizializza la GPIO
-  turn_on_lte(); // Accende il modulo LTE
-
+  musicStart(); // Suona la melodia di avvio
+  xTaskCreatePinnedToCore(
+    StatusTask,         // Task function
+    "StatusTask",       // Task name
+    10000,             // Stack size (bytes)
+    NULL,              // Parameters
+    1,                 // Priority
+    &StatusTaskHandle,  // Task handle
+    1                  // Core 1
+  );
+  
+  delay(1000);
+  
+  Serial.println("Ready to receive commands. Type 'help' for a list of commands.");
+  
 }
-
-
 
 /************ LOOPS **************/
 void loop() {
 
   
     // From serial
-    String input = Serial.readString();
-    if (input.length() > 0) {
-      Serial.print("# ");
-      Serial.print(input);
-      cli.parse(input);
+    if(Serial.available()) {
+      char c = Serial.read();
+      Serial.print(c); // Echo del carattere ricevuto
+      if (c == '\n' || c == '\r') {
+        if (input.length() > 0) {
+          Serial.print("# ");
+          Serial.println(input);
+          
+          cli.parse(input);
+          input = ""; // Pulisce l'input dopo averlo processato
+        }
+      } else if (c != -1) { // Se è stato letto un carattere valido
+        input += c; // Aggiunge il carattere all'input
+      }
+    }
+
+
+    if(serialJetson.available()) {
+      String line = serialJetson.readStringUntil('\n');
+      line.trim();
+      if (line.length() > 0) {
+        cli.parse(line);
+      }
     }
     
-    updateStatus(); // Legge la tensione della batteria e aggiorna current_voltage
-    
-    String jsonResponse;
-    serializeJson(doc, jsonResponse);
-    Serial.println(jsonResponse);
-
     delay(10);
     
  
 }
 
+void errorCLICallback(cmd_error* e) {
+    CommandError cmdError(e); // Create wrapper object
+
+    Serial.print("ERROR: ");
+    Serial.println(cmdError.toString());
+
+    if (cmdError.hasCommand()) {
+        Serial.print("Did you mean \"");
+        Serial.print(cmdError.getCommand().toString());
+        Serial.println("\"?");
+    }
+}
+
+/**
+* Task che si occupa di aggiornare periodicamente lo stato del dispositivo, leggendo la tensione della batteria e aggiornando il documento JSON con le informazioni correnti, inclusi i payloads dei dispositivi vicini. Il task invia lo stato aggiornato alla UART0 (modulo Jetson) ogni secondo.
+ */
+void StatusTask(void *parameter) {
+  for (;;) { // Infinite loop
+    updateStatus();  
+    
+    String jsonResponse;
+    serializeJson(status, jsonResponse);
+    serialJetson.println(jsonResponse); // Invia lo stato aggiornato alla UART0 (modulo Jetson)
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    
+    
+  }
+}
+
+/**
+ * Aggiorna lo stato del dispositivo, leggendo la tensione della batteria e aggiornando il documento JSON con le informazioni correnti, inclusi i payloads dei dispositivi vicini.
+ */
 void updateStatus(){
   readBattery();
-  doc["status"] = "OK";
-  doc["version"] = VERSION;
-  doc["voltage"] = current_voltage;
-  doc["uptime_seconds"] = millis() / 1000;
-
+ 
+  
+  status["V1"] = current_voltage_batt1;
+  status["P1"]= percent_batt1;
+  status["V2"] = current_voltage_batt2;
+  status["P2"]= percent_batt2;
+  status["G"] = readGPSBackup();
+  
+  JsonArray payloadsArray = status["PL"].to<JsonArray>();
+  serializedPayloads(payloadsArray);
+ 
 
 }
 
+/**
+ * Serializza i payloads in un array JSON da includere nella risposta API.
+ * Ogni payload contiene il MAC address, il tipo di dispositivo, lo stato di connessione
+ */
+void serializedPayloads(JsonArray& arr) {
+  for (int i = 0; i < 10; i++) {
+    
+    if (payloads[i].type != "") {
+      JsonObject obj = arr.add<JsonObject>(); // Sintassi corretta per ArduinoJson v7
+      
+      // 1. Formatta il MAC address in una stringa leggibile (es. "00:1A:2B:3C:4D:5E")
+      char macStr[18];
+      snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+               payloads[i].mac[0], payloads[i].mac[1], payloads[i].mac[2],
+               payloads[i].mac[3], payloads[i].mac[4], payloads[i].mac[5]);
+               
+      // 2. Assegna i valori all'oggetto JSON
+      obj["M"] = String(macStr);
+      obj["T"] = payloads[i].type;
+      obj["LM"] = payloads[i].lastMessage;
+      obj["C"] = payloads[i].counter;
+    }
+  }
+}
 
+/**
+ * Invia un valore float come messaggio ESP-NOW, convertendo il float in un array di byte e inviando i byte uno alla volta. Utile per inviare dati numerici precisi a un peer ESP-NOW.
+ */
 void sendFloat(float valore) {
   byte* p = (byte*)(void*)&valore;
   for (int i = 0; i < 4; i++) {
@@ -376,18 +807,60 @@ void sendFloat(float valore) {
   }
 }
 
-
 /**
  * Legge la tensione della batteria utilizzando i pin ADC e applicando i fattori di divisione per ottenere il valore reale.
  * Aggiorna la variabile globale current_voltage con il valore calcolato.
  */
 void readBattery(){
   // Leggi il valore ADC dal pin specificato
-  int adcValue = analogRead(PIN_ADC_CH0); // Sostituisci con il pin corretto
+  int adcValue = analogReadMilliVolts(PIN_ADC_CH0); // Sostituisci con il pin corretto
 
   // Calcola la tensione reale applicando il fattore di divisione
-  current_voltage = adcValue * DIV_FACTOR_CH0; // Sostituisci con il fattore di divisione corretto
+  current_voltage_batt1 = ((float)adcValue/1000) * DIV_FACTOR_CH0; // Sostituisci con il fattore di divisione corretto
 
   // Applica l'offset di calibrazione se necessario
-  current_voltage += ADC_CALIB_OFFSET;
+  current_voltage_batt1 += ADC_CALIB_OFFSET;
+
+  float percentuale = (current_voltage_batt1 - V_MIN_6S) / (V_MAX_6S - V_MIN_6S) * 100.0;
+  percent_batt1 = constrain(percentuale, 0.0, 100.0);
+
+  // TODO: Se hai un secondo canale ADC per la seconda batteria, ripeti il processo per aggiornare current_voltage_batt2 e percent_batt2
+  current_voltage_batt2 = current_voltage_batt1; // Sostituisci con il fattore di divisione corretto
+  percent_batt2 = percent_batt1; // Sostituisci con il fattore di divisione corretto
+}
+
+/**
+ * Legge le informazioni GPS dal modulo LTE, accendendo il GPS se necessario, e restituendo le informazioni formattate come stringa. Se il GPS è spento, lo accende e attende un momento prima di richiedere le informazioni. Se il GPS è acceso, richiede direttamente le informazioni sulla posizione GPS.
+ */
+String readGPSBackup(){
+  if(lteOn){
+    // 1. Accendi il GPS se non è già acceso
+    String gpsPower = sendATCommand("AT+CGPS?", 2000);
+    if (gpsPower.indexOf("+CGPS: 0") != -1) {
+        sendATCommand("AT+CGPS=1,1", 2000);
+        delay(1000); // Attendi un momento per l'accensione
+    }
+
+    // 2. Richiedi le informazioni sulla posizione GPS
+    String gpsInfo = sendATCommand("AT+CGPSINFO", 5000);
+
+    if (gpsInfo.indexOf("+CGPSINFO:") != -1) {
+        // Estrai e formatta i dati
+        gpsInfo.replace("+CGPSINFO: ", "");
+        return gpsInfo; // Restituisce le informazioni GPS formattate 
+      
+    }
+  }
+
+  return ""; // Restituisce una stringa vuota se il GPS è spento o se c'è un errore
+}
+
+void musicStart() {
+  for (int i = 0; i < 4; i++) {
+    ledcWriteTone(BUZZER_CHANNEL, melodia[i]);
+    ledcWrite(BUZZER_CHANNEL, BUZZER_DUTY_CYCLE);
+    delay(durata[i]);
+    ledcWrite(BUZZER_CHANNEL, 0);  // Spegne il suono
+    delay(50);  // Breve pausa tra le note
+  }
 }

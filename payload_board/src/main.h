@@ -5,6 +5,10 @@
 #include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <EEPROM.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
 #define VERSION "1.0.0"
 
 /**** BUZZER *****/
@@ -15,27 +19,40 @@ bool enabledBuzzer=true;
 
 
 /***** WIFI *******/
-const char* ssid = "PAYLOAD";
-const char* password = "123456789";
+#define PAYLOAD_TYPE "MBES"
 
+const char* ssid = "DEVSS_MBES";
+const char* password = "123456789";
 /***** CLI *******/
 SimpleCLI cli;
 Command cmdHelp;
 Command cmdStatus;
+Command cmdReboot;
+Command cmdScan;
+
+Command cmdMotor;
 
 
 /***** ESP-NOW ******/
-uint8_t receiverMac[] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+uint8_t NUMac[6];
 typedef struct struct_message {
-    char testo[32];
+    char testo[128];
     int contatore;
     float lettura;
 } struct_message;
 
-struct_message datiInviati;
-struct_message datiRicevuti;
+bool nu_connected=false;
+
+//struct_message datiInviati;
+//struct_message datiRicevuti;
 
 esp_now_peer_info_t peerInfo;
+
+
+/****** TEMPERATURE SENSOR ******/
+#define ONE_WIRE_BUS 13
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
 
 /***** STATUS *****/
 
@@ -47,7 +64,10 @@ void beep(int count,int pause);
 void debug(const char* msg);
 void debugln(const char* msg);
 void initESPNow();
+void ESPNOWNUScanner();
+void parseCommand(const String json,const uint8_t *mac_addr_from);
 void initBuzzer();
+bool registerDynamicPeer(const uint8_t* mac, int channel);
 bool initWiFiAccessPoint(const char* ssid, const char* password, int channel, bool hidden, int maxConnections);
 void setup();
 void loop();
@@ -55,5 +75,16 @@ void setupCli();
 void setupTelnet();
 void sendFloat(float valore);
 
+void updateStatus();
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
+
+
+uint8_t voltageToPercent(float voltage);
+float readVoltage();
+
+void motorUp();
+void motorDown();
+void motorStop();
+void StatusTask(void *parameter);
+void printAddress(DeviceAddress deviceAddress);

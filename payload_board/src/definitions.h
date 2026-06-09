@@ -42,9 +42,21 @@
 
 // --- MISC INPUTS/OUTPUTS ---
 #define PIN_BUZZER      40  // Buzzer attivo [cite: 560]
-#define PIN_LED_ADDR    42  // DOUT_LED_ADDR (SK6812/NeoPixel) [cite: 551]
+#define PIN_LED    23  // DOUT_LED_ADDR (SK6812/NeoPixel) [cite: 551]
+#define PIN_RELE1      16  // Relè 1 (Controllo motore su/giù) [cite: 559]
+#define PIN_RELE2      17  // Relè 2 (Controllo mot
+#define BTN1            34  // Pulsante 1 (Input digitale) [cite: 558]
+#define BTN2            32  // Pulsante 2 (Input digitale) [cite:
+#define BTN3            25  // Pulsante 2 (Input digitale) [cite:
 
 
+const int READING_OFFSET = 200;
+const int ADC_PIN = 34;
+const float R1 = 47000.0;
+const float R2 = 4700.0;
+const float VREF = 3.3;
+const int ADC_MAX = 4095;
+const int NUM_SAMPLES = 64; // media mobile per stabilità
 
 // --- USB NATIVE PINS ---
 // #define PIN_USB_DN      19  // USB D- [cite: 548]
