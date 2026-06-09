@@ -454,6 +454,7 @@ void initWebserver() {
       AsyncWebServerResponse *response = request->beginResponse(200, "text/html", htmlContent);
       response->addHeader("Content-Disposition", "inline");
       request->send(response);
+      delay(1000);
       terminal="";
     });
     
@@ -772,7 +773,7 @@ void setup() {
   turn_on_lte(); // Accende il modulo LTE
 
 
-  pixels.begin();
+  
 
   // Inizializza Access Point WiFi
   if (!turn_on_wifi(ssid, password, 1, false, 4)) {
@@ -957,6 +958,7 @@ String readGPSBackup(){
     if (gpsInfo.indexOf("+CGPSINFO:") != -1) {
         // Estrai e formatta i dati
         gpsInfo.replace("+CGPSINFO: ", "");
+        gpsInfo.replace("\r\n\r\nOK","");
         return gpsInfo; // Restituisce le informazioni GPS formattate 
       
     }
