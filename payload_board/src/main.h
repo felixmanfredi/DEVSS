@@ -28,12 +28,16 @@ SimpleCLI cli;
 Command cmdHelp;
 Command cmdStatus;
 Command cmdInfo;
+Command cmdPCOn;
+Command cmdPCOff;
+
 
 Command cmdReboot;
 Command cmdScan;
 
 Command cmdMotor;
 
+bool pc_state=false;
 
 /***** ESP-NOW ******/
 uint8_t NUMac[6];
@@ -93,3 +97,5 @@ void motorStop();
 void StatusTask(void *parameter);
 String printAddress(uint8_t* deviceAddress);
 JsonDocument getInfo();
+void pc_on();
+void pc_off();

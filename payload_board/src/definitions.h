@@ -48,7 +48,8 @@
 #define BTN1            19  // Pulsante 1 (Input digitale) [cite: 558]
 #define BTN2            5  // Pulsante 2 (Input digitale) [cite:
 #define BTN3            25  // Pulsante 2 (Input digitale) [cite:
-
+#define PIN_PC          15
+#define PIN_PC_STATE    0
 
 const int READING_OFFSET = 200;
 const int ADC_PIN = 34;

@@ -76,7 +76,9 @@ void parseCommand(const String json,const uint8_t *mac_addr_from) {
     } else {
       motorStop();
     }
-    
+  }else if(strcmp(command,"pc")==0){
+    int state = doc["state"];
+      if(state) pc_on(); else pc_off();
   } else if (strcmp(command, "reboot") == 0) {
     ESP.restart();
   } else {
@@ -189,6 +191,7 @@ JsonDocument getInfo(){
   docInfo["wifi_password"] = password;
   docInfo["nu_connected"] = nu_connected;
   docInfo["nu_mac"]=printAddress(NUMac);
+  docInfo["pc_state"]=pc_state;
   
   return docInfo;
 }
@@ -336,7 +339,13 @@ void setupCli(){
     }
   });
  
+  cmdPCOn=cli.addSingleArgCmd("pc_on",[](cmd* c){
+    pc_on();
+  });
   
+  cmdPCOff=cli.addSingleArgCmd("pc_off",[](cmd* c){
+    pc_off();
+  });
 }
 
 String printAddress(uint8_t* deviceAddress)
@@ -353,7 +362,7 @@ String printAddress(uint8_t* deviceAddress)
 
 void setup() {
   Serial.begin(115200);
-  setupCli(); // Inizializza l'interfaccia a riga di comando
+ 
 
   pinMode(PIN_RELE1, OUTPUT);
   pinMode(PIN_RELE2, OUTPUT);
@@ -361,6 +370,11 @@ void setup() {
   pinMode(BTN1, INPUT_PULLUP);
   pinMode(BTN2, INPUT_PULLUP);
   pinMode(BTN3, INPUT);
+  pinMode(PIN_PC,OUTPUT);
+  pinMode(PIN_PC_STATE,INPUT_PULLDOWN);
+  digitalWrite(PIN_PC,LOW);
+
+   setupCli(); // Inizializza l'interfaccia a riga di comando
 
   // Inizializza Access Point WiFi
   if (!initWiFiAccessPoint(ssid, password, 1, false, 4)) {
@@ -460,6 +474,22 @@ void updateStatus(){
     digitalWrite(PIN_LED, LOW);
   }
 
+  pc_state=digitalRead(PIN_PC_STATE);
+
+}
+
+void pc_on(){
+  digitalWrite(PIN_PC,HIGH);
+  delay(500);
+  digitalWrite(PIN_PC,LOW);
+  Serial.println("PC on");
+}
+
+void pc_off(){
+  digitalWrite(PIN_PC,HIGH);
+  delay(5000);
+  digitalWrite(PIN_PC,LOW);
+  Serial.println("PC off");
 }
 
 
