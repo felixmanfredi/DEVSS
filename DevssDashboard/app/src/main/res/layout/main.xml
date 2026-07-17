@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:weightSum="1">
+
+
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:background="@color/ral2002"
+
+        >
+
+
+
+
+
+        <ImageView
+            android:id="@+id/imageView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_gravity="center"
+            android:layout_marginTop="20dp"
+            android:src="@drawable/logo_white"
+             />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAlignment="center"
+            android:text="www.3dresearch.it"
+            ></TextView>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            >
+            <Button
+                android:id="@+id/btn_gcs"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:drawableTop="@drawable/qgroundcontrol"
+                android:text="QGroundControl"
+                android:textSize="8pt"
+
+                ></Button>
+
+            <Button
+                android:id="@+id/btn_ucamera"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="UCamera"
+                android:textSize="8pt"
+
+                android:drawableTop="@drawable/ucamera"
+                ></Button>
+
+            <Button
+                android:id="@+id/btn_samba"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:drawableTop="@drawable/andsmb"
+                android:textSize="8pt"
+                android:text="Filesystem"
+                ></Button>
+
+            <Button
+                android:id="@+id/btn_remotedesktop"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Remote Desktop (RDP)"
+                android:textSize="8pt"
+
+                android:drawableTop="@drawable/remotedesktop"
+
+                ></Button>
+
+            <Button
+                android:id="@+id/btn_chrome"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Browser"
+                android:textSize="8pt"
+
+                android:drawableTop="@drawable/chrome"
+
+                ></Button>
+        </LinearLayout>
+
+
+
+
+    </LinearLayout>
+
+
+</FrameLayout>
