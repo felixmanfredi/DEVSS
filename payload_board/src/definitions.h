@@ -44,12 +44,30 @@
 #define PIN_BUZZER      40  // Buzzer attivo [cite: 560]
 #define PIN_LED    23  // DOUT_LED_ADDR (SK6812/NeoPixel) [cite: 551]
 #define PIN_RELE1      16  // Relè 1 (Controllo motore su/giù) [cite: 559]
-#define PIN_RELE2      17  // Relè 2 (Controllo mot
+#define PIN_RELE2      17  // Relè 2 (Controllo motore
 #define BTN1            19  // Pulsante 1 (Input digitale) [cite: 558]
 #define BTN2            5  // Pulsante 2 (Input digitale) [cite:
 #define BTN3            25  // Pulsante 2 (Input digitale) [cite:
 #define PIN_PC          15
 #define PIN_PC_STATE    0
+
+// --- ARM MOTOR (apertura/chiusura bracci antenne GPS) ---
+// JST Driver Motore - ESP32 (vedi etichetta): pin 3=IN1, 4=IN2, 5=SDA, 6=SCL
+// Driver motore con sensore di corrente INA260 integrato (protezione fine corsa)
+#define ARM_MOTOR_IN1   13  // IN1 driver (filo verde)
+#define ARM_MOTOR_IN2   33  // IN2 driver (filo rosso)
+#define ARM_I2C_SDA     14  // SDA INA260 (filo giallo)
+#define ARM_I2C_SCL     12  // SCL INA260 (filo blu) - NB: GPIO12 e' uno strapping pin ESP32
+#define BTN_ARM_APRI    26  // Pulsante DESTRA -> apre i bracci
+#define BTN_ARM_CHIUDI  27  // Pulsante SINISTRA -> chiude i bracci
+
+const float ARM_STOP_CURRENT_MA = 450.0f; // soglia sovracorrente per arresto motore (fine corsa)
+
+// --- PROTEZIONE BATTERIA SCARICA ---
+// Sotto questa percentuale (calcolata dalla LUT 4S): chiudi i bracci e alza il palo automaticamente
+const uint8_t LOW_BATTERY_PERCENT_THRESHOLD = 20;
+// Durata sollevamento automatico del palo (non c'e' sensore di corrente sul motore palo) - DA TARARE sul tempo di corsa reale
+const unsigned long POLE_RAISE_ON_LOW_VOLTAGE_MS = 10000;
 
 const int READING_OFFSET = 200;
 const int ADC_PIN = 34;

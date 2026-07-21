@@ -8,6 +8,8 @@
 #include <EEPROM.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <Wire.h>
+#include <Adafruit_INA260.h>
 
 #define VERSION "1.0.0"
 
@@ -36,6 +38,7 @@ Command cmdReboot;
 Command cmdScan;
 
 Command cmdMotor;
+Command cmdArm;
 
 bool pc_state=false;
 
@@ -64,6 +67,18 @@ DallasTemperature sensors(&oneWire);
 
 int motorState=0;
 float current_voltage=0.0f;
+
+/****** ARM MOTOR (bracci antenne GPS) ******/
+Adafruit_INA260 armCurrentSensor = Adafruit_INA260();
+bool armCurrentSensorFound = false;
+int armMotorState = 0; // 0=stop, 1=apertura, 2=chiusura
+float armCurrent_mA = 0.0f;
+bool armAutoActive = false; // true mentre i bracci si chiudono per protezione batteria scarica (bypassa lo stop a rilascio pulsante)
+
+/****** PROTEZIONE BATTERIA SCARICA ******/
+bool lowVoltageActionDone = false; // evita di ritriggerare l'azione finche' la percentuale non risale sopra soglia
+bool poleAutoActive = false; // true mentre il palo si alza per protezione batteria scarica (bypassa lo stop a rilascio pulsante)
+unsigned long poleAutoStartMillis = 0;
 
 
 void beep(int count,int pause);
@@ -94,6 +109,14 @@ float readVoltage();
 void motorUp(bool monostate);
 void motorDown(bool monostate);
 void motorStop();
+
+void armApri(bool monostate);
+void armChiudi(bool monostate);
+void armStop();
+void checkArmOvercurrent();
+void checkLowVoltageProtection(float voltage, uint8_t percent);
+void checkPoleAutoRaiseTimeout();
+
 void StatusTask(void *parameter);
 String printAddress(uint8_t* deviceAddress);
 JsonDocument getInfo();

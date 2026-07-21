@@ -76,6 +76,15 @@ void parseCommand(const String json,const uint8_t *mac_addr_from) {
     } else {
       motorStop();
     }
+  }else if (strcmp(command, "arm") == 0) {
+    int direction = doc["direction"];
+    if(direction == 1) {
+      armApri(false);
+    } else if (direction == 2) {
+      armChiudi(false);
+    } else {
+      armStop();
+    }
   }else if(strcmp(command,"pc")==0){
     int state = doc["state"];
       if(state) pc_on(); else pc_off();
@@ -192,7 +201,9 @@ JsonDocument getInfo(){
   docInfo["nu_connected"] = nu_connected;
   docInfo["nu_mac"]=printAddress(NUMac);
   docInfo["pc_state"]=pc_state;
-  
+  docInfo["arm_state"]=armMotorState;
+  docInfo["arm_current_mA"]=armCurrent_mA;
+
   return docInfo;
 }
 
@@ -339,6 +350,24 @@ void setupCli(){
     }
   });
  
+  cmdArm = cli.addSingleArgCmd("arm", [](cmd* c){
+    Command cmd(c);
+
+    int direction = cmd.getArgument(0).getValue().toInt();
+    if(direction == 1) {
+      armApri(false);
+      Serial.println("Bracci: apertura");
+    } else if(direction == 2) {
+      armChiudi(false);
+      Serial.println("Bracci: chiusura");
+    } else if(direction == 0) {
+      armStop();
+      Serial.println("Bracci: stop");
+    } else {
+      Serial.println("Direzione sconosciuta. Usa '1' (apri), '2' (chiudi) o '0' (stop).");
+    }
+  });
+
   cmdPCOn=cli.addSingleArgCmd("pc_on",[](cmd* c){
     pc_on();
   });
@@ -373,6 +402,20 @@ void setup() {
   pinMode(PIN_PC,OUTPUT);
   pinMode(PIN_PC_STATE,INPUT_PULLDOWN);
   digitalWrite(PIN_PC,LOW);
+
+  pinMode(ARM_MOTOR_IN1, OUTPUT);
+  pinMode(ARM_MOTOR_IN2, OUTPUT);
+  pinMode(BTN_ARM_APRI, INPUT_PULLUP);
+  pinMode(BTN_ARM_CHIUDI, INPUT_PULLUP);
+  armStop();
+
+  Wire.begin(ARM_I2C_SDA, ARM_I2C_SCL);
+  if (armCurrentSensor.begin()) {
+    armCurrentSensorFound = true;
+    Serial.println("INA260 bracci: trovato");
+  } else {
+    Serial.println("INA260 bracci: NON trovato, protezione sovracorrente disabilitata");
+  }
 
    setupCli(); // Inizializza l'interfaccia a riga di comando
 
@@ -416,13 +459,31 @@ void loop() {
     
     
     if(btn1State == LOW) {
+      poleAutoActive = false; // comando manuale: annulla il sollevamento automatico in corso
       motorUp(true);
     } else if (btn2State == LOW) {
+      poleAutoActive = false;
       motorDown(true);
-    } else if (btn1State == HIGH && btn2State==HIGH && motorState>0) {
+    } else if (btn1State == HIGH && btn2State==HIGH && motorState>0 && !poleAutoActive) {
       motorStop();
     }
-    
+
+    int btnArmApriState = digitalRead(BTN_ARM_APRI);
+    int btnArmChiudiState = digitalRead(BTN_ARM_CHIUDI);
+
+    if(btnArmApriState == LOW) {
+      armAutoActive = false; // comando manuale: annulla la chiusura automatica in corso
+      armApri(true);
+    } else if (btnArmChiudiState == LOW) {
+      armAutoActive = false;
+      armChiudi(true);
+    } else if (btnArmApriState == HIGH && btnArmChiudiState == HIGH && armMotorState>0 && !armAutoActive) {
+      armStop();
+    }
+
+    checkArmOvercurrent();
+    checkPoleAutoRaiseTimeout();
+
      // From serial
     if(Serial.available()) {
       char c = Serial.read();
@@ -449,10 +510,13 @@ void loop() {
 
 void updateStatus(){
   float voltage = readVoltage();
+  uint8_t percent = voltageToPercent(voltage);
   status["T"] = PAYLOAD_TYPE;
   status["V"] = voltage;
-  status["P"]= voltageToPercent(voltage);
-  
+  status["P"]= percent;
+
+  checkLowVoltageProtection(voltage, percent);
+
   sensors.requestTemperatures(); // Send the command to get temperatures
   // After we got the temperatures, we can print them here.
   // We use the function ByIndex, and as an example get the temperature from the first sensor only.
@@ -567,4 +631,81 @@ void motorStop(){
   motorState=0;
   digitalWrite(PIN_RELE1, LOW);
   digitalWrite(PIN_RELE2, LOW);
+}
+
+void armApri(bool monostate=false){
+  debugln("Bracci: apertura");
+  if(monostate)
+    armMotorState=1;
+  digitalWrite(ARM_MOTOR_IN1, HIGH);
+  digitalWrite(ARM_MOTOR_IN2, LOW);
+}
+
+void armChiudi(bool monostate=false){
+  debugln("Bracci: chiusura");
+  if(monostate)
+    armMotorState=2;
+  digitalWrite(ARM_MOTOR_IN1, LOW);
+  digitalWrite(ARM_MOTOR_IN2, HIGH);
+}
+
+void armStop(){
+  debugln("Bracci: stop");
+
+  armMotorState=0;
+  digitalWrite(ARM_MOTOR_IN1, LOW);
+  digitalWrite(ARM_MOTOR_IN2, LOW);
+}
+
+/**
+ * Legge la corrente dal sensore INA260 sul driver dei bracci e ferma il motore
+ * se supera la soglia (motore a fine corsa contro il fermo meccanico).
+ */
+void checkArmOvercurrent(){
+  if (!armCurrentSensorFound || armMotorState == 0) return;
+
+  armCurrent_mA = armCurrentSensor.readCurrent();
+  if (armCurrent_mA > ARM_STOP_CURRENT_MA) {
+    armStop();
+    armAutoActive = false;
+    Serial.print("Bracci: STOP per sovracorrente, corrente rilevata: ");
+    Serial.println(armCurrent_mA);
+  }
+}
+
+/**
+ * Protezione batteria scarica: sotto LOW_BATTERY_PERCENT_THRESHOLD chiude i bracci
+ * e alza il palo automaticamente (azione singola, non blocca i comandi manuali successivi).
+ */
+void checkLowVoltageProtection(float voltage, uint8_t percent){
+  if (percent < LOW_BATTERY_PERCENT_THRESHOLD) {
+    if (!lowVoltageActionDone) {
+      lowVoltageActionDone = true;
+      Serial.print("ATTENZIONE: batteria scarica (");
+      Serial.print(percent);
+      Serial.print("%, ");
+      Serial.print(voltage, 2);
+      Serial.println("V) - chiudo i bracci e alzo il palo");
+
+      armAutoActive = true;
+      armChiudi(true);
+
+      poleAutoActive = true;
+      poleAutoStartMillis = millis();
+      motorUp(true);
+    }
+  } else {
+    lowVoltageActionDone = false; // ripristina l'armamento della protezione quando la tensione risale
+  }
+}
+
+/**
+ * Ferma il palo dopo POLE_RAISE_ON_LOW_VOLTAGE_MS dal sollevamento automatico
+ * (il motore palo non ha un sensore di corrente per rilevare il fine corsa).
+ */
+void checkPoleAutoRaiseTimeout(){
+  if (poleAutoActive && (millis() - poleAutoStartMillis >= POLE_RAISE_ON_LOW_VOLTAGE_MS)) {
+    motorStop();
+    poleAutoActive = false;
+  }
 }
