@@ -8,10 +8,12 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.trediresearch.devssdashboard.databinding.MainBinding
+import kotlinx.coroutines.*
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.SocketException
+import kotlin.io.outputStream
 
 
 class MainActivity : ComponentActivity() {
@@ -228,11 +230,55 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val timerScope = CoroutineScope(Dispatchers.IO + Job())
+    private var timerJob: Job? = null
 
     fun connectSerialReceiverH12() {
 
+
+        val serialPortConnection3: SerialPortConnection =
+            SerialPortConnection.newBuilder("/dev/ttyHS0", 4000000).flags(8192).build()
+
         val serialPortConnection: SerialPortConnection =
             SerialPortConnection.newBuilder("/dev/ttyHS1", 921600).flags(8192).build()
+
+       // serialPortConnection3!!.outputStream.write(10)
+
+        serialPortConnection3.setDelegate(object : SerialPortConnection.Delegate{
+            override fun connect() {
+                Log.d("H12Starter", "Connected2");
+
+                // Cancelliamo un eventuale timer precedente per sicurezza
+
+                timerJob?.cancel()
+
+                timerJob = timerScope.launch {
+                    while (isActive) { // Continua finché la coroutine è attiva
+                        try {
+                            val messaggio="lorem ipsum daskdjaslkjlkas dlka jslkdj aksl jkldas lkjd ajlks djlka lkjd ajlks djlkas lkjd ajlk djlka";
+                            val datiDaInviare = messaggio.toByteArray(Charsets.UTF_8)
+
+                            serialPortConnection3.outputStream.write(datiDaInviare)
+                            serialPortConnection3.outputStream.flush()
+                            // Se necessario, fai il flush per forzare l'invio immediato dei dati
+                        } catch (e: Exception) {
+                            Log.e("H12Starter", "Errore durante l'invio seriale", e)
+                            break // Interrompi il ciclo in caso di errore di connessione
+                        }
+
+                        delay(1000) // Aspetta 1 secondo (1000 millisecondi)
+                    }
+                }
+
+
+            }
+
+            override fun received(param1ArrayOfbyte: ByteArray, param1Int: Int) {
+                val messaggioStringa = String(param1ArrayOfbyte, 0, param1Int, Charsets.UTF_8)
+
+                Log.d("UART3", messaggioStringa);
+            }
+        })
 
 
         mSerialPortConnection = serialPortConnection
@@ -253,8 +299,9 @@ class MainActivity : ComponentActivity() {
         })
         try {
             serialPortConnection.openConnection();
+            serialPortConnection3.openConnection();
         }catch (e: SecurityException){
-            Log.d("DEVSSDashboard", e.message.toString());
+            Log.d("UART3", e.message.toString());
         }
 
     }
