@@ -22,7 +22,7 @@
 
 
         <ImageView
-            android:id="@+id/imageView"
+            android:id="@+id/logo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -98,6 +98,22 @@
 
 
     </LinearLayout>
+    <FrameLayout
+        android:layout_gravity="top"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="5dp"
+        >
+        <TextView
+            android:id="@+id/rtcm_enable"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="RTCM3"
+            android:visibility="gone"
+            >
 
+        </TextView>
+
+    </FrameLayout>
 
 </FrameLayout>
