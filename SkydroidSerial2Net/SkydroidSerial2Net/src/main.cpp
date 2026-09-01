@@ -4,15 +4,15 @@
 #include <HTTPClient.h>
 #include "soc/uart_periph.h"
 
-#define RXD2 16  
-#define TXD2 17  
+#define RXD2 17  
+#define TXD2 16  
 #define BRIDGE_SERIAL Serial2
 
-const uint32_t BRIDGE_BAUD = 1500000;
+const uint32_t BRIDGE_BAUD = 2000000;
 
 // Configurazione Wi-Fi
-const char* ssid = "DEVSS";
-const char* password = "DevssAir1234";
+const char* ssid = "DEVSS AIR";
+const char* password = "devssair";
 
 // Configurazione UDP
 const char* remoteIP = "255.255.255.255";
@@ -56,10 +56,12 @@ uint8_t rxChecksum = 0;
 
 // ---- Invio frame generico ----
 void sendFramedRaw(uint8_t sync0, uint8_t sync1, const uint8_t* data, size_t len) {
+  
   uint8_t checksum = 0;
   for (size_t i = 0; i < len; i++) {
     checksum ^= data[i];
   }
+  
 
   uint8_t header[4];
   header[0] = sync0;
@@ -97,7 +99,7 @@ void handleRestRequest(uint8_t* payload, size_t len) {
   String url = requestLine.substring(spaceIdx + 1);
   method.trim();
   url.trim();
-
+   Serial.println(url);
   // Parsing header
   int pos = firstLineEnd + 1;
   const int MAX_HEADERS = 16;
@@ -130,15 +132,19 @@ void handleRestRequest(uint8_t* payload, size_t len) {
   if (pos < (int)data.length()) {
     body = data.substring(pos);
   }
-
+ Serial.println(body);
   // Esegue la richiesta
   HTTPClient http;
   http.setTimeout(5000); // evita blocchi troppo lunghi
   http.begin(url);
-
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setRedirectLimit(5);
   for (int i = 0; i < headerCount; i++) {
     http.addHeader(headerNames[i], headerValues[i]);
+    Serial.printf("%s : %s\n",headerNames[i],headerValues[i]);
   }
+
+   http.addHeader("Content-Type", "application/json");
 
   method.toUpperCase();
   int httpCode = -1;
@@ -158,15 +164,23 @@ void handleRestRequest(uint8_t* payload, size_t len) {
   }
 
   String responseBody;
+
+
   if (httpCode > 0) {
     responseBody = http.getString();
   } else {
     responseBody = String("ERRORE_HTTPCLIENT: ") + http.errorToString(httpCode);
   }
 
+   
+ 
+
+
   http.end();
 
   String responsePayload = String(httpCode) + "\n" + responseBody;
+
+  Serial.println(responsePayload.length());
   sendRestResponse((const uint8_t*)responsePayload.c_str(), responsePayload.length());
 }
 
@@ -174,7 +188,6 @@ void handleRestRequest(uint8_t* payload, size_t len) {
 void processSerialInput() {
   while (BRIDGE_SERIAL.available() > 0) {
     uint8_t b = BRIDGE_SERIAL.read();
-
     switch (rxState) {
       case RX_WAIT_SYNC0:
         if (b == REST_SYNC_0) rxState = RX_WAIT_SYNC1;
@@ -221,6 +234,7 @@ void processSerialInput() {
 }
 
 void setup() {
+  Serial.begin(115200);
   BRIDGE_SERIAL.setRxBufferSize(2048);
   #if defined(CONFIG_IDF_TARGET_ESP32)
     UART2.conf0.tick_ref_always_on = 1;
@@ -232,6 +246,7 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
   }
+  Serial.println("Connected");
 
   if (!udp.beginMulticast(MCAST_ADDR, MCAST_PORT)) {
     // errore multicast
@@ -240,6 +255,7 @@ void setup() {
 
 void loop() {
   // 1. Multicast/UDP -> seriale (MAVLink), come già presente
+  /*
   int packetSize = udp.parsePacket();
   if (packetSize > 0 && packetSize <= (int)MAX_PACKET) {
     int len = udp.read(packetBuffer, MAX_PACKET);
@@ -247,7 +263,7 @@ void loop() {
       sendFramed(packetBuffer, (size_t)len);
     }
   }
-
+*/
   // 2. Seriale -> richieste REST -> HTTP -> risposta su seriale
   processSerialInput();
 }
