@@ -1,0 +1,82 @@
+# ---------------------------------------------------------------
+# DEVSS - root .gitignore
+# (i sotto-progetti hanno anche i loro .gitignore specifici)
+# ---------------------------------------------------------------
+
+# --- OS ---
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*~
+.directory
+
+# --- Editor / IDE ---
+# VS Code: si tiene solo extensions.json (raccomandazioni PlatformIO)
+**/.vscode/*
+!**/.vscode/extensions.json
+*.code-workspace
+.history/
+*.swp
+*.swo
+# JetBrains / Android Studio
+*.iml
+**/.idea/caches/
+**/.idea/libraries/
+**/.idea/modules.xml
+**/.idea/workspace.xml
+**/.idea/navEditor.xml
+**/.idea/assetWizardSettings.xml
+**/.idea/shelf/
+**/.idea/deploymentTargetDropDown.xml
+**/.idea/deploymentTargetSelector.xml
+**/.idea/misc.xml
+**/.idea/gradle.xml
+**/.idea/other.xml
+**/.idea/androidTestResultsUserPreferences.xml
+
+# --- Claude Code (impostazioni locali per utente) ---
+**/.claude/settings.local.json
+
+# --- PlatformIO / ESP32 firmware ---
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+.ccls
+compile_commands.json
+*.bin
+*.elf
+*.map
+*.hex
+
+# --- Android / Gradle (DevssDashboard) ---
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+.kotlin/
+# Keystore di firma: non devono finire nel repo
+*.jks
+*.keystore
+
+# --- Python (script di upload PlatformIO) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Log / temporanei ---
+*.log
+*.tmp
+*.bak
+*.orig
