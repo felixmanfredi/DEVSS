@@ -11,6 +11,13 @@
 #include <Wire.h>
 #include <Adafruit_INA260.h>
 
+// ElegantOTA in modalita' sincrona (WebServer del core ESP32): evita di dover
+// aggiungere ESPAsyncWebServer come dipendenza extra, sufficiente per un
+// aggiornamento firmware via http://<ip-ap>/update
+#define ELEGANTOTA_USE_ASYNC_WEBSERVER 0
+#include <WebServer.h>
+#include <ElegantOTA.h>
+
 #define VERSION "1.0.0"
 
 /**** BUZZER *****/
@@ -25,6 +32,9 @@ bool enabledBuzzer=true;
 
 const char* ssid = "DEVSS_MBES";
 const char* password = "123456789";
+
+/***** OTA (aggiornamento firmware via web, http://<ip-ap>/update) *******/
+WebServer otaServer(80);
 /***** CLI *******/
 SimpleCLI cli;
 Command cmdHelp;
@@ -51,6 +61,8 @@ typedef struct struct_message {
 } struct_message;
 
 bool nu_connected=false;
+volatile bool nuReconnectPending = false; // impostato da OnDataSent(), consumato da handleNuReconnect() in loop()
+unsigned long lastNuReconnectMillis = 0;
 
 //struct_message datiInviati;
 //struct_message datiRicevuti;
@@ -89,6 +101,7 @@ void debugf(const char* format, ...);
 void debugln(String msg);
 void initESPNow();
 void ESPNOWNUScanner();
+void handleNuReconnect();
 void parseCommand(const String json,const uint8_t *mac_addr_from);
 bool registerDynamicPeer(const uint8_t* mac, int channel);
 bool initWiFiAccessPoint(const char* ssid, const char* password, int channel, bool hidden, int maxConnections);
@@ -105,6 +118,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
 
 uint8_t voltageToPercent(float voltage);
 float readVoltage();
+void detectBatteryType();
 
 void motorUp(bool monostate);
 void motorDown(bool monostate);

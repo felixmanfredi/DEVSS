@@ -23,8 +23,28 @@ const VoltagePoint LIPO_4S_LUT[] = {
   { 16.40f,  95 },
   { 16.80f, 100 },   // carica completa (4.20V/cella)
 };
+const uint8_t LIPO_4S_LUT_SIZE = sizeof(LIPO_4S_LUT) / sizeof(LIPO_4S_LUT[0]);
 
-const uint8_t LUT_SIZE = sizeof(LIPO_4S_LUT) / sizeof(LIPO_4S_LUT[0]);
+// Stessa curva della 4S, scalata per 6 celle (fattore 6/4 = 1.5)
+const VoltagePoint LIPO_6S_LUT[] = {
+  { 18.00f,   0 },   // scarica completa (3.00V/cella)
+  { 19.20f,   5 },   // zona critica
+  { 19.80f,  10 },
+  { 20.40f,  20 },
+  { 21.00f,  30 },
+  { 21.60f,  40 },
+  { 22.20f,  55 },   // zona piatta centrale
+  { 22.80f,  70 },
+  { 23.40f,  85 },
+  { 24.60f,  95 },
+  { 25.20f, 100 },   // carica completa (4.20V/cella)
+};
+const uint8_t LIPO_6S_LUT_SIZE = sizeof(LIPO_6S_LUT) / sizeof(LIPO_6S_LUT[0]);
+
+// LUT e numero di celle rilevati una sola volta all'avvio (vedi detectBatteryType)
+const VoltagePoint* activeLUT = LIPO_4S_LUT;
+uint8_t activeLUTSize = LIPO_4S_LUT_SIZE;
+uint8_t detectedBatteryCells = 4;
 
 /************** ESP-NOW *****************/
 // Callback quando i dati vengono inviati
@@ -33,8 +53,11 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
     //Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Consegna Riuscita" : "Consegna Fallita");
     if(status != ESP_NOW_SEND_SUCCESS) {
       nu_connected = false; // Se l'invio fallisce, consideriamo il dispositivo disconnesso
-      delay(2000); // Piccola pausa per evitare loop troppo rapidi in caso di problemi di connessione
-      ESPNOWNUScanner(); // Riscansiona per cercare di ristabilire la connessione
+      // NB: niente delay()/scan qui: questa callback gira nel contesto del task WiFi
+      // interno; bloccarla o rientrare con uno scan sincrono puo' bloccare/deadlockare
+      // tutto lo stack WiFi/ESP-NOW. Ci limitiamo ad armare un flag: la riscansione
+      // vera e propria viene fatta da loop() (vedi handleNuReconnect()).
+      nuReconnectPending = true;
 
     }else {
       nu_connected = true; // Se l'invio ha successo, il dispositivo è connesso
@@ -137,6 +160,21 @@ void ESPNOWNUScanner() {
   WiFi.scanDelete();
 }
 
+/**
+ * Esegue la riscansione/riconnessione al NU quando un invio ESP-NOW e' fallito.
+ * Va chiamata SOLO da loop() (o comunque fuori dal contesto della callback WiFi):
+ * ESPNOWNUScanner() fa uno scan bloccante e un cambio di modalita' radio, operazioni
+ * che dentro OnDataSent() rischierebbero di bloccare/deadlockare lo stack WiFi/ESP-NOW.
+ */
+void handleNuReconnect() {
+  if (!nuReconnectPending) return;
+  if (millis() - lastNuReconnectMillis < NU_RECONNECT_INTERVAL_MS) return;
+
+  lastNuReconnectMillis = millis();
+  nuReconnectPending = false; // se il problema persiste, il prossimo invio fallito la riarma
+  ESPNOWNUScanner();
+}
+
 bool registerDynamicPeer(const uint8_t* mac, int channel) {
     // Verifica se il peer è già registrato
     if (esp_now_is_peer_exist(mac)) {
@@ -203,6 +241,7 @@ JsonDocument getInfo(){
   docInfo["pc_state"]=pc_state;
   docInfo["arm_state"]=armMotorState;
   docInfo["arm_current_mA"]=armCurrent_mA;
+  docInfo["battery_cells"]=detectedBatteryCells;
 
   return docInfo;
 }
@@ -425,11 +464,18 @@ void setup() {
     while (true); // Blocca l'esecuzione
   }
 
+  // ElegantOTA: aggiornamento firmware da remoto via browser, connettendosi
+  // al WiFi dell'AP e aprendo http://192.168.4.1/update
+  ElegantOTA.begin(&otaServer); // nessuna autenticazione: protetta solo dalla password del WiFi AP
+  otaServer.begin();
+  Serial.println("ElegantOTA pronto su http://192.168.4.1/update");
+
   initESPNow(); // Inizializza ESP-NOW
   ESPNOWNUScanner();
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db); // range 0-3.3V
 
+  detectBatteryType(); // rileva 4S/6S una sola volta all'avvio
 
   sensors.begin(); // Inizializza il sensore di temperatura (se presente)
   sensors.setResolution(12); // Imposta la risoluzione a 12 bit (0.0625°C)
@@ -483,6 +529,10 @@ void loop() {
 
     checkArmOvercurrent();
     checkPoleAutoRaiseTimeout();
+    handleNuReconnect();
+
+    otaServer.handleClient();
+    ElegantOTA.loop();
 
      // From serial
     if(Serial.available()) {
@@ -578,17 +628,17 @@ float readVoltage() {
 
 uint8_t voltageToPercent(float voltage) {
   // Sotto il minimo → 0%
-  if (voltage <= LIPO_4S_LUT[0].voltage) return 0;
+  if (voltage <= activeLUT[0].voltage) return 0;
   // Sopra il massimo → 100%
-  if (voltage >= LIPO_4S_LUT[LUT_SIZE - 1].voltage) return 100;
+  if (voltage >= activeLUT[activeLUTSize - 1].voltage) return 100;
 
   // Trova il segmento e interpola linearmente tra i due punti
-  for (uint8_t i = 0; i < LUT_SIZE - 1; i++) {
-    if (voltage <= LIPO_4S_LUT[i + 1].voltage) {
-      float vLow  = LIPO_4S_LUT[i].voltage;
-      float vHigh = LIPO_4S_LUT[i + 1].voltage;
-      float pLow  = LIPO_4S_LUT[i].percent;
-      float pHigh = LIPO_4S_LUT[i + 1].percent;
+  for (uint8_t i = 0; i < activeLUTSize - 1; i++) {
+    if (voltage <= activeLUT[i + 1].voltage) {
+      float vLow  = activeLUT[i].voltage;
+      float vHigh = activeLUT[i + 1].voltage;
+      float pLow  = activeLUT[i].percent;
+      float pHigh = activeLUT[i + 1].percent;
 
       // Interpolazione lineare tra i due punti della LUT
       float pct = pLow + (voltage - vLow) / (vHigh - vLow) * (pHigh - pLow);
@@ -596,6 +646,28 @@ uint8_t voltageToPercent(float voltage) {
     }
   }
   return 100;
+}
+
+/**
+ * Rileva una sola volta all'avvio se e' collegata una LiPo 4S o 6S,
+ * leggendo la tensione e confrontandola con una soglia intermedia tra
+ * il massimo 4S (16.8V) e il minimo 6S (18.0V). Il pacco non cambia mai
+ * senza un riavvio dell'ESP, quindi non serve rifare il check nel loop.
+ */
+void detectBatteryType() {
+  float voltage = readVoltage();
+
+  if (voltage >= BATTERY_TYPE_DETECT_THRESHOLD_V) {
+    activeLUT = LIPO_6S_LUT;
+    activeLUTSize = LIPO_6S_LUT_SIZE;
+    detectedBatteryCells = 6;
+  } else {
+    activeLUT = LIPO_4S_LUT;
+    activeLUTSize = LIPO_4S_LUT_SIZE;
+    detectedBatteryCells = 4;
+  }
+
+  Serial.printf("Batteria rilevata: %dS (tensione letta: %.2fV)\n", detectedBatteryCells, voltage);
 }
 
 

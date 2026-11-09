@@ -51,7 +51,6 @@
 #define PIN_PC          15
 #define PIN_PC_STATE    0
 
-<<<<<<< Updated upstream
 // --- ARM MOTOR (apertura/chiusura bracci antenne GPS) ---
 // JST Driver Motore - ESP32 (vedi etichetta): pin 3=IN1, 4=IN2, 5=SDA, 6=SCL
 // Driver motore con sensore di corrente INA260 integrato (protezione fine corsa)
@@ -69,20 +68,6 @@ const float ARM_STOP_CURRENT_MA = 450.0f; // soglia sovracorrente per arresto mo
 const uint8_t LOW_BATTERY_PERCENT_THRESHOLD = 20;
 // Durata sollevamento automatico del palo (non c'e' sensore di corrente sul motore palo) - DA TARARE sul tempo di corsa reale
 const unsigned long POLE_RAISE_ON_LOW_VOLTAGE_MS = 10000;
-=======
-// motore avanti => PIN_PWM_MOTOR_IN1 HIGH, PIN_PWM_MOTOR_IN2 LOW
-// motore indietro => PIN_PWM_MOTOR_IN1 LOW, PIN_PWM_MOTOR_IN2 HIGH
-// motore fermo => PIN_PWM_MOTOR_IN1 LOW, PIN_PWM_MOTOR_IN2 LOW
-#define PIN_PWM_MOTOR_IN1 13 
-#define PIN_PWM_MOTOR_IN2 33
-
-// Sensore di corrente INA260
-#define INA260_ADDRESS 0x40
-#define PIN_I2C_SDA 14
-#define PIN_I2C_SCL 12
-#define BTN_MOTOR_ANTENNA1            26  // Pulsante apertura antenna (PULLUP)
-#define BTN_MOTOR_ANTENNA2            27  // Pulsante chiusura antenna (PULLUP)
->>>>>>> Stashed changes
 
 const int READING_OFFSET = 200;
 const int ADC_PIN = 34;
@@ -91,6 +76,12 @@ const float R2 = 4700.0;
 const float VREF = 3.3;
 const int ADC_MAX = 4095;
 const int NUM_SAMPLES = 64; // media mobile per stabilità
+
+// Soglia per distinguere 4S (max 16.8V) da 6S (min 18.0V) alla lettura iniziale
+const float BATTERY_TYPE_DETECT_THRESHOLD_V = 17.4f;
+
+// Intervallo minimo tra due tentativi di riscansione/riconnessione al NU dopo un invio fallito
+const unsigned long NU_RECONNECT_INTERVAL_MS = 2000;
 
 // --- USB NATIVE PINS ---
 // #define PIN_USB_DN      19  // USB D- [cite: 548]

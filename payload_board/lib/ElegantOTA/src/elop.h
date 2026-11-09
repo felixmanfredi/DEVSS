@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-#if ELEGANTOTA_USE_ASYNC_WEBSERVER == 1
-    extern const uint8_t ELEGANT_HTML[10214] PROGMEM;
-#endif
+// Dichiarata sempre: serve sia alla modalita' async che a quella sync (WebServer),
+// vedi ElegantOTA.cpp che la referenzia in entrambi i rami.
+extern const uint8_t ELEGANT_HTML[10214] PROGMEM;
 #endif
